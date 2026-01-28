@@ -1,91 +1,84 @@
-# Telegram Bot on Raspberry Pi
+# Telegram Bot
 
-A simple Hello World Telegram bot running on Raspberry Pi 4.
+A modular Telegram bot designed to run on Raspberry Pi with systemd integration.
 
-## Prerequisites
+## Features
 
-- Raspberry Pi 4 with Raspberry Pi OS
-- WiFi configured and SSH enabled
-- Telegram account
+- `/start` - Start command
+- Echo any text message back
+- Auto-discovery handler system
+- Environment-based configuration
+- Systemd service integration
 
-## Setup
+## Quick Start
 
-### 1. Create Telegram Bot
+### 1. Create Bot Token
 
-1. Open Telegram and search for `@BotFather`
-2. Send `/newbot` and follow prompts
-3. Save the API token you receive
+Open Telegram and message `@BotFather`:
+- Send `/newbot`
+- Follow the prompts
+- Save your bot token
 
-### 2. Prepare Raspberry Pi
-
-SSH into your Pi and install dependencies:
-
-```bash
-ssh <username>@<pi-ip-address>
-sudo apt update && sudo apt upgrade -y
-sudo apt install python3-pip -y
-pip3 install python-telegram-bot --break-system-packages
-```
-
-### 3. Deploy Bot
-
-On your laptop, create `hello_bot.py` and add your bot token.
-
-Copy the script to your Pi:
+### 2. Clone & Setup
 
 ```bash
-scp hello_bot.py <username>@<pi-ip>:/home/<username>/
+git clone https://github.com/AlexGreau/Telegram-bots.git
+cd Telegram-bots
+
+# Automated setup
+chmod +x setup.sh
+./setup.sh
+
+# Configure bot token
+nano .env
+# Add your TELEGRAM_BOT_TOKEN
 ```
 
-### 4. Set Up as System Service
-
-Create `telegram-bot.service` (replace `<username>` with your Pi username):
-
-```ini
-[Unit]
-Description=Telegram Hello World Bot
-After=network.target
-
-[Service]
-Type=simple
-User=<username>
-WorkingDirectory=/home/<username>
-ExecStart=/usr/bin/python3 /home/<username>/hello_bot.py
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Copy and enable the service:
+### 3. Test Locally
 
 ```bash
-scp telegram-bot.service <username>@<pi-ip>:/home/<username>/
-ssh <username>@<pi-ip>
-sudo mv telegram-bot.service /etc/systemd/system/
+source venv/bin/activate
+python bot.py
+```
+
+Send `/start` to your bot in Telegram. If it responds, you're good!
+
+### 4. Deploy as Service
+
+```bash
+sudo cp telegram-bot.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable telegram-bot.service
 sudo systemctl start telegram-bot.service
-```
 
-### 5. Verify
-
-Check service status:
-
-```bash
+# Verify
 sudo systemctl status telegram-bot.service
 ```
 
-Open Telegram, find your bot, and send `/start`
+## Project Structure
 
-## Useful Commands
+```
+.
+├── bot.py                 # Main entry point
+├── config.py              # Configuration management
+├── requirements.txt       # Python dependencies
+├── .env.example           # Environment template
+├── setup.sh               # Automated setup script
+├── telegram-bot.service   # Systemd service file
+└── handlers/              # Handler modules
+    ├── __init__.py        # Auto-discovery
+    └── hello.py           # Example handlers
+```
+
+## Commands
+
+### Service Management
 
 ```bash
 # Check status
 sudo systemctl status telegram-bot.service
 
-# View logs
+# View live logs
 sudo journalctl -u telegram-bot.service -f
 
 # Restart bot
@@ -95,15 +88,79 @@ sudo systemctl restart telegram-bot.service
 sudo systemctl stop telegram-bot.service
 ```
 
-## Features
+### Development
 
-- `/start` - Get a hello world message
-- Send any text - Bot echoes it back
+```bash
+# Activate environment
+source venv/bin/activate
 
-## Roadmap
+# Install/update dependencies
+pip install -r requirements.txt
 
-- [ ] Flashcard dealer functionality
-- [ ] File storage via Telegram
+# Run bot manually
+python bot.py
+```
+
+## Configuration
+
+Edit `.env` to customize:
+
+```env
+TELEGRAM_BOT_TOKEN=your_token_here
+LOG_LEVEL=INFO
+DEBUG=False
+```
+
+## Updating Code
+
+1. Make changes locally
+2. Commit and push
+3. On Pi: `git pull`
+4. Restart service: `sudo systemctl restart telegram-bot.service`
+
+**Note:** You only need to restart the service. No need to recreate the venv or reinstall dependencies.
+
+## Adding Handlers
+
+1. Create a new file in `handlers/` (e.g., `handlers/myhandler.py`)
+2. Implement a `register(app)` function
+3. The handler auto-discovers and registers on startup
+
+Example:
+
+```python
+from telegram import Update
+from telegram.ext import CommandHandler, ContextTypes
+
+async def my_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("My response")
+
+def register(app):
+    app.add_handler(CommandHandler("mycommand", my_command))
+```
+
+## Troubleshooting
+
+### Bot stops after restart
+
+Check logs:
+```bash
+sudo journalctl -u telegram-bot.service -n 50
+```
+
+### Multiple instances running
+
+```bash
+# Kill all bot processes
+pkill -f "python bot.py"
+
+# Restart service
+sudo systemctl restart telegram-bot.service
+```
+
+### Token not found
+
+Ensure `.env` is in the project directory with `TELEGRAM_BOT_TOKEN` set.
 
 ## License
 
