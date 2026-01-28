@@ -1,12 +1,13 @@
 [Unit]
-Description=Telegram Hello World Bot
+Description=Telegram Bot
 After=network.target
 
 [Service]
 Type=simple
 User=techman
-WorkingDirectory=/home/techman
-ExecStart=/usr/bin/python3 /home/techman/Code/Bots/hello_bot.py
+WorkingDirectory=/home/techman/Code/Telegram-bots
+Environment="PATH=/home/techman/Code/Telegram-bots/venv/bin"
+ExecStart=/home/techman/Code/Telegram-bots/venv/bin/python bot.py
 Restart=always
 RestartSec=10
 
