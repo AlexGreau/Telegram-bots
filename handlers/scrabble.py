@@ -7,7 +7,7 @@ SCRABBLE_MODE = 1
 
 async def scrabble_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "🎯 Scrabble mode activated!\n"
+        "🔤 Scrabble mode activated!\n"
         "Send me words to check, or /done to exit."
     )
     return SCRABBLE_MODE
@@ -16,14 +16,14 @@ async def scrabble_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def checkWord(update: Update, context: ContextTypes.DEFAULT_TYPE):
     word = update.message.text.strip().lower()
     if word in valid_words:
-        await update.message.reply_text(f"✓ '{word}' is a valid Scrabble word!")
+        await update.message.reply_text(f"✅ '{word}' is a valid Scrabble word!")
     else:
-        await update.message.reply_text(f"✗ '{word}' is not a valid Scrabble word.")
+        await update.message.reply_text(f"❌ '{word}' is not a valid Scrabble word.")
     return SCRABBLE_MODE
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Exited Scrabble mode. Use /scrabble to start again!")
+    await update.message.reply_text("Ended Scrabble mode. More commands via /help")
     return ConversationHandler.END
 
 

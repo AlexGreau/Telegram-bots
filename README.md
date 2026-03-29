@@ -161,7 +161,3 @@ sudo systemctl restart telegram-bot.service
 ### Token not found
 
 Ensure `.env` is in the project directory with `TELEGRAM_BOT_TOKEN` set.
-
-## License
-
-MIT
