@@ -35,9 +35,8 @@ def format_swim_confirmation(date: str, distance: int, stats: dict) -> str:
 
 def log_swim(date: str, distance: int) -> dict:
     ws = _get_swim_sheet()
-    print(f"[log_swim] sheet={ws.title} appending date={date} distance={distance}")
-    ws.append_row([date, "", distance, ""])
-    print(f"[log_swim] append_row done")
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}:D{next_row}", [[date, "", distance, ""]])
     return get_swim_stats()
 
 def get_swim_stats() -> dict:
