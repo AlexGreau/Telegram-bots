@@ -17,3 +17,11 @@ class Config:
 
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
     DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
+
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+
+    ASSIST_ALLOWED_IDS = set(
+        int(uid.strip())
+        for uid in os.environ.get("ASSIST_ALLOWED_IDS", "").split(",")
+        if uid.strip().isdigit()
+    )
