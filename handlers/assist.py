@@ -15,7 +15,8 @@ AWAIT_PROMPT = 1
 _SYSTEM_PROMPT = (
     "You are a helpful AI assistant integrated into a Telegram bot. "
     "Answer questions clearly and concisely. "
-    "You can log swim sessions when the user mentions swimming a distance."
+    "You can log swim sessions when the user mentions swimming a distance. "
+    "Always respond in plain text without any markdown formatting."
 )
 
 _TOOLS = [
@@ -40,14 +41,16 @@ _TOOLS = [
 ]
 
 
-async def _execute_tool(name: str, inputs: dict) -> str:
+async def _execute_tool(name: str, inputs: dict) -> tuple[str, str | None]:
+    """Returns (tool_result_for_claude, markdown_reply_for_user | None)."""
     if name == "log_swim":
         iso_date = inputs.get("date") or date_today.today().isoformat()
         formatted = format_date_for_swim(iso_date)
         distance = inputs["distance"]
         stats = _log_swim(formatted, distance)
-        return format_swim_confirmation(formatted, distance, stats)
-    return f"Unknown tool: {name}"
+        msg = format_swim_confirmation(formatted, distance, stats)
+        return "logged", msg
+    return f"Unknown tool: {name}", None
 
 
 async def assist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -84,7 +87,11 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(reply)
                 break
 
-            result = await _execute_tool(tool_block.name, tool_block.input)
+            tool_result, md_reply = await _execute_tool(tool_block.name, tool_block.input)
+
+            if md_reply:
+                await update.message.reply_text(md_reply, parse_mode="Markdown")
+                break
 
             messages.append({"role": "assistant", "content": response.content})
             messages.append({
@@ -92,7 +99,7 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "content": [{
                     "type": "tool_result",
                     "tool_use_id": tool_block.id,
-                    "content": result,
+                    "content": tool_result,
                 }],
             })
 

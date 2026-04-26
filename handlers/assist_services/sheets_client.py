@@ -26,11 +26,11 @@ def format_date_for_swim(iso_date: str) -> str:
 
 def format_swim_confirmation(date: str, distance: int, stats: dict) -> str:
     return (
-        f"Logged {distance:,}m on {date}\n\n"
-        f"Total: {stats['total']:,}m / {stats['objective']:,}m\n"
-        f"Remaining: {stats['distance_to_goal']:,}m\n"
-        f"Weeks left: {stats['weeks_left']}\n"
-        f"Weekly pace needed: ~{stats['weekly_pace']:,}m/week"
+        f"✅ Logged *{distance:,}m* on {date}\n"
+        f"📊 Total: *{stats['total']:,}m* | Goal: *{stats['objective']:,}m*\n"
+        f"📉 Remaining: *{stats['distance_to_goal']:,}m*\n"
+        f"📅 Weeks left: *{stats['weeks_left']}*\n"
+        f"🏃 Pace needed: *~{stats['weekly_pace']:,}m/week*"
     )
 
 def log_swim(date: str, distance: int) -> dict:
