@@ -34,12 +34,10 @@ def format_swim_confirmation(date: str, distance: int, stats: dict) -> str:
     )
 
 def log_swim(date: str, distance: int) -> dict:
-    """
-    Append a new swim session row.
-    date should be in DD/MM format — sheet handles weeknum and totals.
-    """
     ws = _get_swim_sheet()
-    ws.append_row([date, "", distance, ""])  # weeknum and total auto-calculated by sheet
+    print(f"[log_swim] sheet={ws.title} appending date={date} distance={distance}")
+    ws.append_row([date, "", distance, ""])
+    print(f"[log_swim] append_row done")
     return get_swim_stats()
 
 def get_swim_stats() -> dict:
