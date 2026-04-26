@@ -22,21 +22,28 @@ async def assist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    client = anthropic.AsyncAnthropic(api_key=Config.ANTHROPIC_API_KEY)
+    try:
+        client = anthropic.AsyncAnthropic(api_key=Config.ANTHROPIC_API_KEY)
 
-    response = await client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1024,
-        system=[{
-            "type": "text",
-            "text": _SYSTEM_PROMPT,
-            "cache_control": {"type": "ephemeral"},
-        }],
-        messages=[{"role": "user", "content": update.message.text}],
-    )
+        response = await client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=[{
+                "type": "text",
+                "text": _SYSTEM_PROMPT,
+                "cache_control": {"type": "ephemeral"},
+            }],
+            messages=[{"role": "user", "content": update.message.text}],
+        )
 
-    reply = next((b.text for b in response.content if b.type == "text"), "No response generated.")
-    await update.message.reply_text(reply)
+        reply = next((b.text for b in response.content if b.type == "text"), "No response generated.")
+        await update.message.reply_text(reply)
+    except anthropic.AuthenticationError:
+        await update.message.reply_text("Error: Invalid Anthropic API key. Check ANTHROPIC_API_KEY in .env")
+    except anthropic.APIConnectionError:
+        await update.message.reply_text("Error: Could not reach the Claude API. Check your internet connection.")
+    except Exception as e:
+        await update.message.reply_text(f"Something went wrong: {e}")
     return ConversationHandler.END
 
 
