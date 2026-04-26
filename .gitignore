@@ -3,6 +3,7 @@ token.txt
 .env
 .env.local
 .env.*.local
+secrets/
 
 # Python
 __pycache__/
