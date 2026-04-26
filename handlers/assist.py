@@ -124,9 +124,12 @@ async def swim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if query.data.startswith("swim_confirm:"):
         _, date, distance = query.data.split(":")
-        stats = _log_swim(date, int(distance))
-        msg = format_swim_confirmation(date, int(distance), stats)
-        await query.edit_message_text(msg, parse_mode="Markdown")
+        try:
+            stats = _log_swim(date, int(distance))
+            msg = format_swim_confirmation(date, int(distance), stats)
+            await query.edit_message_text(msg, parse_mode="Markdown")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Failed to log: {e}")
 
     elif query.data == "swim_cancel":
         await query.edit_message_text("❌ Cancelled.")
