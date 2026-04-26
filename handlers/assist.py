@@ -88,9 +88,8 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tool_result, pending = await _execute_tool(tool_block.name, tool_block.input)
 
             if pending:
-                context.user_data["pending_swim"] = pending
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Confirm", callback_data="swim_confirm"),
+                    InlineKeyboardButton("✅ Confirm", callback_data=f"swim_confirm:{pending['date']}:{pending['distance']}"),
                     InlineKeyboardButton("❌ Cancel", callback_data="swim_cancel"),
                 ]])
                 await update.message.reply_text(
@@ -123,17 +122,13 @@ async def swim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data == "swim_confirm":
-        pending = context.user_data.pop("pending_swim", None)
-        if not pending:
-            await query.edit_message_text("Session expired, please try again.")
-            return
-        stats = _log_swim(pending["date"], pending["distance"])
-        msg = format_swim_confirmation(pending["date"], pending["distance"], stats)
+    if query.data.startswith("swim_confirm:"):
+        _, date, distance = query.data.split(":")
+        stats = _log_swim(date, int(distance))
+        msg = format_swim_confirmation(date, int(distance), stats)
         await query.edit_message_text(msg, parse_mode="Markdown")
 
     elif query.data == "swim_cancel":
-        context.user_data.pop("pending_swim", None)
         await query.edit_message_text("❌ Cancelled.")
 
 
@@ -150,4 +145,4 @@ def register(app):
         },
         fallbacks=[CommandHandler("done", done)],
     ))
-    app.add_handler(CallbackQueryHandler(swim_callback, pattern="^swim_"))
+    app.add_handler(CallbackQueryHandler(swim_callback, pattern="^swim_(?:confirm:|cancel$)"))
