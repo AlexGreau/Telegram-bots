@@ -59,6 +59,25 @@ def get_swim_stats() -> dict:
         "weekly_pace": weekly_pace
     }
 
+def _get_run_sheet():
+    gc = _get_client()
+    sh = gc.open_by_key(os.getenv("GOOGLE_SHEET_ID_RUN"))
+    return sh.worksheet("history")
+
+def format_date_for_run(iso_date: str) -> str:
+    return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d%m%Y")
+
+def log_run(date: str, distance_km: float, time: str) -> None:
+    ws = _get_run_sheet()
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}:C{next_row}", [[date, distance_km, time]])
+
+def format_run_confirmation(date: str, distance_km: float, time: str) -> str:
+    display_date = f"{date[:2]}/{date[2:4]}/{date[4:]}"
+    return (
+        f"✅ Logged *{distance_km}km* in *{time}* on {display_date}"
+    )
+
 def weeks_remaining_in_year() -> int:
     today = datetime.now()
     end_of_year = datetime(today.year, 12, 31)

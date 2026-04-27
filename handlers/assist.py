@@ -8,6 +8,9 @@ from handlers.assist_services.sheets_client import (
     format_date_for_swim,
     format_swim_confirmation,
     log_swim as _log_swim,
+    format_date_for_run,
+    format_run_confirmation,
+    log_run as _log_run,
 )
 
 AWAIT_PROMPT = 1
@@ -37,7 +40,29 @@ _TOOLS = [
             },
             "required": ["distance"],
         },
-    }
+    },
+    {
+        "name": "log_run",
+        "description": "Log a run session to the tracking sheet. Use when the user mentions running a distance.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "date": {
+                    "type": "string",
+                    "description": "ISO date (YYYY-MM-DD). Omit if the user means today.",
+                },
+                "distance_km": {
+                    "type": "number",
+                    "description": "Distance run in kilometers.",
+                },
+                "time": {
+                    "type": "string",
+                    "description": "Duration in HH:MM:SS,ms format e.g. 45:00,00.",
+                },
+            },
+            "required": ["distance_km", "time"],
+        },
+    },
 ]
 
 
@@ -47,7 +72,11 @@ async def _execute_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
         iso_date = inputs.get("date") or date_today.today().isoformat()
         formatted = format_date_for_swim(iso_date)
         distance = inputs["distance"]
-        return "pending_confirmation", {"date": formatted, "distance": distance}
+        return "pending_confirmation", {"type": "swim", "date": formatted, "distance": distance}
+    if name == "log_run":
+        iso_date = inputs.get("date") or date_today.today().isoformat()
+        formatted = format_date_for_run(iso_date)
+        return "pending_confirmation", {"type": "run", "date": formatted, "distance_km": inputs["distance_km"], "time": inputs["time"]}
     return f"Unknown tool: {name}", None
 
 
@@ -91,15 +120,18 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             tool_result, pending = await _execute_tool(tool_block.name, tool_block.input)
 
             if pending:
+                if pending["type"] == "swim":
+                    preview = f"🏊 About to log *{pending['distance']:,}m* on {pending['date']}"
+                    confirm_data = f"swim_confirm:{pending['date']}:{pending['distance']}"
+                else:
+                    display_date = f"{pending['date'][:2]}/{pending['date'][2:4]}/{pending['date'][4:]}"
+                    preview = f"🏃 About to log *{pending['distance_km']}km* in *{pending['time']}* on {display_date}"
+                    confirm_data = f"run_confirm;{pending['date']};{pending['distance_km']};{pending['time']}"
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Confirm", callback_data=f"swim_confirm:{pending['date']}:{pending['distance']}"),
-                    InlineKeyboardButton("❌ Cancel", callback_data="swim_cancel"),
+                    InlineKeyboardButton("✅ Confirm", callback_data=confirm_data),
+                    InlineKeyboardButton("❌ Cancel", callback_data="activity_cancel"),
                 ]])
-                await update.message.reply_text(
-                    f"🏊 About to log *{pending['distance']:,}m* on {pending['date']}",
-                    parse_mode="Markdown",
-                    reply_markup=keyboard,
-                )
+                await update.message.reply_text(preview, parse_mode="Markdown", reply_markup=keyboard)
                 break
 
             messages.append({"role": "assistant", "content": response.content})
@@ -134,7 +166,16 @@ async def swim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             await query.edit_message_text(f"❌ Failed to log: {e}")
 
-    elif query.data == "swim_cancel":
+    elif query.data.startswith("run_confirm;"):
+        _, date, distance_km, time = query.data.split(";")
+        try:
+            _log_run(date, float(distance_km), time)
+            msg = format_run_confirmation(date, float(distance_km), time)
+            await query.edit_message_text(msg, parse_mode="Markdown")
+        except Exception as e:
+            await query.edit_message_text(f"❌ Failed to log: {e}")
+
+    elif query.data == "activity_cancel":
         await query.edit_message_text("❌ Cancelled.")
 
 
@@ -152,4 +193,4 @@ def register(app):
         },
         fallbacks=[CommandHandler("done", done)],
     ))
-    app.add_handler(CallbackQueryHandler(swim_callback, pattern="^swim_(?:confirm:|cancel$)"))
+    app.add_handler(CallbackQueryHandler(swim_callback, pattern="^(?:swim_confirm:|run_confirm;|activity_cancel$)"))
