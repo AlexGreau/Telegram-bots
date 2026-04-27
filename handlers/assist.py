@@ -192,12 +192,23 @@ async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
+async def timed_out(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.pop("assist_history", None)
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text="Session timed out after 30 minutes of inactivity. Use /assist to start a new one.",
+    )
+    return ConversationHandler.END
+
+
 def register(app):
     app.add_handler(ConversationHandler(
         entry_points=[CommandHandler("assist", assist_start)],
         states={
             AWAIT_PROMPT: [MessageHandler(filters.TEXT & ~filters.COMMAND, assist_respond)],
+            ConversationHandler.TIMEOUT: [MessageHandler(filters.ALL, timed_out)],
         },
         fallbacks=[CommandHandler("done", done)],
+        conversation_timeout=1800,
     ))
     app.add_handler(CallbackQueryHandler(swim_callback, pattern="^(?:swim_confirm:|run_confirm;|activity_cancel$)"))
