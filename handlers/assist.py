@@ -63,7 +63,8 @@ async def assist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         client = anthropic.AsyncAnthropic(api_key=Config.ANTHROPIC_API_KEY)
-        messages = [{"role": "user", "content": update.message.text}]
+        messages = context.user_data.get("assist_history", [])
+        messages.append({"role": "user", "content": update.message.text})
 
         while True:
             response = await client.messages.create(
@@ -82,6 +83,8 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if tool_block is None:
                 reply = next((b.text for b in response.content if b.type == "text"), "No response generated.")
+                messages.append({"role": "assistant", "content": reply})
+                context.user_data["assist_history"] = messages
                 await update.message.reply_text(reply)
                 break
 
@@ -115,7 +118,7 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Error: Could not reach the Claude API. Check your internet connection.")
     except Exception as e:
         await update.message.reply_text(f"Something went wrong: {e}")
-    return ConversationHandler.END
+    return AWAIT_PROMPT
 
 
 async def swim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -136,7 +139,8 @@ async def swim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Cancelled. Use /help for available commands.")
+    context.user_data.pop("assist_history", None)
+    await update.message.reply_text("Conversation ended. Use /assist to start a new one.")
     return ConversationHandler.END
 
 
