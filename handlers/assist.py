@@ -12,17 +12,22 @@ from handlers.assist_services.sheets_client import (
     format_run_confirmation,
     log_run as _log_run,
 )
+from handlers.assist_services.flashcard_tools import FLASHCARD_TOOLS, execute_flashcard_tool
 
 AWAIT_PROMPT = 1
 
 _SYSTEM_PROMPT = (
     "You are a helpful AI assistant integrated into a Telegram bot. "
     "Answer questions clearly and concisely. "
-    "You can log swim sessions when the user mentions swimming a distance. "
+    "You can log swim and run sessions when the user mentions them. "
+    "You can manage a language flashcard deck: add new words, run quiz sessions, and show stats. "
+    "When quizzing, work through all due cards one at a time, vary how you ask each question, "
+    "grade generously for minor typos, and call update_flashcard after every answer. "
     "Always respond in plain text without any markdown formatting."
 )
 
 _TOOLS = [
+    *FLASHCARD_TOOLS,
     {
         "name": "log_swim",
         "description": "Log a swim session to the tracking sheet. Use when the user mentions swimming a distance.",
@@ -68,6 +73,8 @@ _TOOLS = [
 
 async def _execute_tool(name: str, inputs: dict) -> tuple[str, dict | None]:
     """Returns (tool_result_for_claude, pending_data | None)."""
+    if name in {"add_flashcard", "get_due_cards", "update_flashcard", "get_flashcard_stats"}:
+        return execute_flashcard_tool(name, inputs), None
     if name == "log_swim":
         iso_date = inputs.get("date") or date_today.today().isoformat()
         formatted = format_date_for_swim(iso_date)
