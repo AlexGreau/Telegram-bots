@@ -16,15 +16,21 @@ from handlers.assist_services.flashcard_tools import FLASHCARD_TOOLS, execute_fl
 
 AWAIT_PROMPT = 1
 
-_SYSTEM_PROMPT = (
-    "You are a helpful AI assistant integrated into a Telegram bot. "
-    "Answer questions clearly and concisely. "
-    "You can log swim and run sessions when the user mentions them. "
-    "You can manage a language flashcard deck: add new words, run quiz sessions, and show stats. "
-    "When quizzing, work through all due cards one at a time, vary how you ask each question, "
-    "grade generously for minor typos, and call update_flashcard after every answer. "
-    "Always respond in plain text without any markdown formatting."
-)
+def _build_system_prompt() -> str:
+    today = date_today.today().isoformat()
+    return (
+        f"Today's date is {today}. "
+        "You are a helpful AI assistant integrated into a Telegram bot. "
+        "Answer questions clearly and concisely. "
+        "You can log swim and run sessions when the user mentions them. "
+        "When the user gives a relative date (e.g. 'yesterday', '2 days ago', 'last Monday'), "
+        f"resolve it to an absolute ISO date using today ({today}) as the reference. "
+        "If the user mentions multiple activities in one message, call all the relevant tools together in a single response. "
+        "You can manage a language flashcard deck: add new words, run quiz sessions, and show stats. "
+        "When quizzing, work through all due cards one at a time, vary how you ask each question, "
+        "grade generously for minor typos, and call update_flashcard after every answer. "
+        "Always respond in plain text without any markdown formatting."
+    )
 
 _TOOLS = [
     *FLASHCARD_TOOLS,
@@ -108,34 +114,47 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 max_tokens=1024,
                 system=[{
                     "type": "text",
-                    "text": _SYSTEM_PROMPT,
+                    "text": _build_system_prompt(),
                     "cache_control": {"type": "ephemeral"},
                 }],
                 tools=_TOOLS,
                 messages=messages,
             )
 
-            tool_block = next((b for b in response.content if b.type == "tool_use"), None)
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
 
-            if tool_block is None:
+            if not tool_blocks:
                 reply = next((b.text for b in response.content if b.type == "text"), "No response generated.")
                 messages.append({"role": "assistant", "content": reply})
                 context.user_data["assist_history"] = messages
                 await update.message.reply_text(reply)
                 break
 
-            tool_result, pending = await _execute_tool(tool_block.name, tool_block.input)
+            pending_items = []
+            tool_results = []
+            for tb in tool_blocks:
+                tool_result, pending = await _execute_tool(tb.name, tb.input)
+                if pending:
+                    pending_items.append(pending)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tb.id,
+                    "content": tool_result,
+                })
 
-            if pending:
-                if pending["type"] == "swim":
-                    preview = f"🏊 About to log *{pending['distance']:,}m* on {pending['date']}"
-                    confirm_data = f"swim_confirm:{pending['date']}:{pending['distance']}"
-                else:
-                    display_date = f"{pending['date'][:2]}/{pending['date'][2:4]}/{pending['date'][4:]}"
-                    preview = f"🏃 About to log *{pending['distance_km']}km* in *{pending['time']}* on {display_date}"
-                    confirm_data = f"run_confirm;{pending['date']};{pending['distance_km']};{pending['time']}"
+            if pending_items:
+                context.user_data["pending_activities"] = pending_items
+                lines = []
+                for item in pending_items:
+                    if item["type"] == "swim":
+                        lines.append(f"🏊 *{item['distance']:,}m* on {item['date']}")
+                    else:
+                        d = item["date"]
+                        display = f"{d[:2]}/{d[2:4]}/{d[4:]}"
+                        lines.append(f"🏃 *{item['distance_km']}km* in {item['time']} on {display}")
+                preview = "About to log:\n" + "\n".join(lines)
                 keyboard = InlineKeyboardMarkup([[
-                    InlineKeyboardButton("✅ Confirm", callback_data=confirm_data),
+                    InlineKeyboardButton("✅ Confirm", callback_data="multi_confirm"),
                     InlineKeyboardButton("❌ Cancel", callback_data="activity_cancel"),
                 ]])
                 await update.message.reply_text(preview, parse_mode="Markdown", reply_markup=keyboard)
@@ -144,11 +163,7 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             messages.append({"role": "assistant", "content": response.content})
             messages.append({
                 "role": "user",
-                "content": [{
-                    "type": "tool_result",
-                    "tool_use_id": tool_block.id,
-                    "content": tool_result,
-                }],
+                "content": tool_results,
             })
 
     except anthropic.AuthenticationError:
@@ -160,30 +175,28 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return AWAIT_PROMPT
 
 
-async def swim_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def activity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
-    if query.data.startswith("swim_confirm:"):
-        _, date, distance = query.data.split(":")
-        try:
-            stats = _log_swim(date, int(distance))
-            msg = format_swim_confirmation(date, int(distance), stats)
-            await query.edit_message_text(msg, parse_mode="Markdown")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Failed to log: {e}")
-
-    elif query.data.startswith("run_confirm;"):
-        _, date, distance_km, time = query.data.split(";")
-        try:
-            _log_run(date, float(distance_km), time)
-            msg = format_run_confirmation(date, float(distance_km), time)
-            await query.edit_message_text(msg, parse_mode="Markdown")
-        except Exception as e:
-            await query.edit_message_text(f"❌ Failed to log: {e}")
-
-    elif query.data == "activity_cancel":
+    if query.data == "activity_cancel":
+        context.user_data.pop("pending_activities", None)
         await query.edit_message_text("❌ Cancelled.")
+        return
+
+    items = context.user_data.pop("pending_activities", [])
+    confirmations = []
+    for item in items:
+        try:
+            if item["type"] == "swim":
+                stats = _log_swim(item["date"], item["distance"])
+                confirmations.append(format_swim_confirmation(item["date"], item["distance"], stats))
+            else:
+                _log_run(item["date"], item["distance_km"], item["time"])
+                confirmations.append(format_run_confirmation(item["date"], item["distance_km"], item["time"]))
+        except Exception as e:
+            confirmations.append(f"❌ Failed to log entry: {e}")
+    await query.edit_message_text("\n\n".join(confirmations), parse_mode="Markdown")
 
 
 async def done(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -211,4 +224,4 @@ def register(app):
         fallbacks=[CommandHandler("done", done)],
         conversation_timeout=1800,
     ))
-    app.add_handler(CallbackQueryHandler(swim_callback, pattern="^(?:swim_confirm:|run_confirm;|activity_cancel$)"))
+    app.add_handler(CallbackQueryHandler(activity_callback, pattern="^(?:multi_confirm|activity_cancel)$"))
