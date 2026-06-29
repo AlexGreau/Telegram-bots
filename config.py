@@ -20,6 +20,9 @@ class Config:
 
     ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
+    GOOGLE_SHEET_ID_FINANCE_SG = os.environ.get("GOOGLE_SHEET_ID_FINANCE_SG", "")
+    DEFAULT_CURRENCY = os.environ.get("DEFAULT_CURRENCY", "SGD")
+
     ASSIST_ALLOWED_IDS = set(
         int(uid.strip())
         for uid in os.environ.get("ASSIST_ALLOWED_IDS", "").split(",")
