@@ -13,6 +13,8 @@ from handlers.assist_services.sheets_client import (
     log_run as _log_run,
     get_categories,
     add_category,
+    get_payment_methods,
+    add_payment_method,
     get_known_tags,
     log_transaction as _log_transaction,
     format_transaction_confirmation,
@@ -22,10 +24,16 @@ from handlers.assist_services.finance_tools import FINANCE_TOOLS, execute_financ
 
 AWAIT_PROMPT = 1
 
-def _build_system_prompt(known_categories: list[str], known_tags: list[str], base_currency: str) -> str:
+def _build_system_prompt(
+    known_categories: list[str],
+    known_tags: list[str],
+    known_payment_methods: list[str],
+    base_currency: str,
+) -> str:
     today = date_today.today().isoformat()
     cats = ", ".join(known_categories) if known_categories else "(none yet)"
     tags = ", ".join(known_tags) if known_tags else "(none yet)"
+    pms = ", ".join(known_payment_methods) if known_payment_methods else "(none yet)"
     return (
         f"Today's date is {today}. "
         "You are a helpful AI assistant integrated into a Telegram bot. "
@@ -42,6 +50,10 @@ def _build_system_prompt(known_categories: list[str], known_tags: list[str], bas
         f"Known categories: {cats}. "
         "Prefer a category from this list when one fits. If none fits, propose a new short "
         "Title-Case category name — the user will confirm before it is added. "
+        f"Known payment methods: {pms}. "
+        "When a payment method is mentioned, prefer one from this list. If none fits, propose a "
+        "new short Title-Case name — the user will confirm before it is added. Omit "
+        "payment_method entirely if the user didn't mention how they paid. "
         f"Known tags so far: {tags}. "
         "When tagging, reuse an existing tag if it captures the same concept (e.g. don't introduce "
         "'japan_trip' if 'japan-trip' already exists). Only invent a new tag when nothing fits. "
@@ -103,8 +115,9 @@ async def _execute_tool(name: str, inputs: dict, context: ContextTypes.DEFAULT_T
     if name in {"add_flashcard", "get_due_cards", "update_flashcard", "get_flashcard_stats"}:
         return execute_flashcard_tool(name, inputs), None
     if name == LOG_TRANSACTION:
-        known = context.user_data.get("known_categories", [])
-        return execute_finance_tool(name, inputs, known)
+        known_cats = context.user_data.get("known_categories", [])
+        known_pms = context.user_data.get("known_payment_methods", [])
+        return execute_finance_tool(name, inputs, known_cats, known_pms)
     if name == "log_swim":
         iso_date = inputs.get("date") or date_today.today().isoformat()
         formatted = format_date_for_swim(iso_date)
@@ -127,6 +140,10 @@ async def assist_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception:
         context.user_data["known_categories"] = []
     try:
+        context.user_data["known_payment_methods"] = get_payment_methods()
+    except Exception:
+        context.user_data["known_payment_methods"] = []
+    try:
         context.user_data["known_tags"] = get_known_tags()
     except Exception:
         context.user_data["known_tags"] = []
@@ -145,6 +162,7 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         system_text = _build_system_prompt(
             context.user_data.get("known_categories", []),
             context.user_data.get("known_tags", []),
+            context.user_data.get("known_payment_methods", []),
             context.user_data.get("base_currency", "SGD"),
         )
 
@@ -237,6 +255,12 @@ async def activity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if item["new_category"] not in cats:
                         cats.append(item["new_category"])
                         context.user_data["known_categories"] = cats
+                if item.get("new_payment_method"):
+                    add_payment_method(item["new_payment_method"])
+                    pms = context.user_data.get("known_payment_methods", [])
+                    if item["new_payment_method"] not in pms:
+                        pms.append(item["new_payment_method"])
+                        context.user_data["known_payment_methods"] = pms
                 if item.get("tags"):
                     existing = context.user_data.get("known_tags", [])
                     existing_lower = {t.lower() for t in existing}

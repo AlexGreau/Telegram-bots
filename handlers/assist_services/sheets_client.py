@@ -101,6 +101,10 @@ def _get_categories_tab():
     return _get_finance_sheet().worksheet("categories")
 
 
+def _get_payment_methods_tab():
+    return _get_finance_sheet().worksheet("payment_methods")
+
+
 def get_categories() -> list[str]:
     ws = _get_categories_tab()
     return [v.strip() for v in ws.col_values(1) if v and v.strip()]
@@ -108,6 +112,17 @@ def get_categories() -> list[str]:
 
 def add_category(name: str) -> None:
     ws = _get_categories_tab()
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}", [[name]])
+
+
+def get_payment_methods() -> list[str]:
+    ws = _get_payment_methods_tab()
+    return [v.strip() for v in ws.col_values(1) if v and v.strip()]
+
+
+def add_payment_method(name: str) -> None:
+    ws = _get_payment_methods_tab()
     next_row = len(ws.col_values(1)) + 1
     ws.update(f"A{next_row}", [[name]])
 
@@ -178,4 +193,6 @@ def format_transaction_confirmation(pending: dict) -> str:
         line += f"\n   📝 {pending['notes']}"
     if pending.get("new_category"):
         line += f"\n   ⚠️ New category will be created: '{pending['new_category']}'"
+    if pending.get("new_payment_method"):
+        line += f"\n   ⚠️ New payment method will be created: '{pending['new_payment_method']}'"
     return line

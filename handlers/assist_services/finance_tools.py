@@ -14,6 +14,8 @@ FINANCE_TOOLS = [
             "do not guess the FX rate. "
             "Pick `category` from the provided list when one fits; if nothing fits, propose a "
             "new, short, Title-Case category — the user will see and confirm it before it is added. "
+            "Same rule applies to `payment_method`: pick from the known list when one fits; if not, "
+            "propose a new one and the user will confirm it. "
             "For tags, reuse an existing tag from the known_tags list when it captures the same "
             "concept (e.g. don't introduce 'japan_trip' if 'japan-trip' already exists); only "
             "invent a new tag when nothing fits. Tags are not user-confirmed."
@@ -76,7 +78,11 @@ FINANCE_TOOLS = [
                 },
                 "payment_method": {
                     "type": "string",
-                    "description": "Optional. Freeform, e.g. 'Card', 'Cash', 'Bank transfer'.",
+                    "description": (
+                        "How the transaction was paid. Optional. Prefer one from the known list. "
+                        "If nothing fits, propose a new short Title-Case name — the user will "
+                        "confirm before it is added."
+                    ),
                 },
                 "notes": {
                     "type": "string",
@@ -89,7 +95,12 @@ FINANCE_TOOLS = [
 ]
 
 
-def execute_finance_tool(name: str, inputs: dict, known_categories: list[str]) -> tuple[str, dict | None]:
+def execute_finance_tool(
+    name: str,
+    inputs: dict,
+    known_categories: list[str],
+    known_payment_methods: list[str],
+) -> tuple[str, dict | None]:
     if name != LOG_TRANSACTION:
         return f"Unknown finance tool: {name}", None
 
@@ -129,9 +140,20 @@ def execute_finance_tool(name: str, inputs: dict, known_categories: list[str]) -
     if not category:
         return "Missing 'category'.", None
 
-    canonical = next((c for c in known_categories if c.lower() == category.lower()), None)
-    is_new_category = canonical is None
-    final_category = category if is_new_category else canonical
+    canonical_cat = next((c for c in known_categories if c.lower() == category.lower()), None)
+    is_new_category = canonical_cat is None
+    final_category = category if is_new_category else canonical_cat
+
+    payment_method = (inputs.get("payment_method") or "").strip()
+    final_payment_method = ""
+    is_new_payment_method = False
+    if payment_method:
+        canonical_pm = next(
+            (p for p in known_payment_methods if p.lower() == payment_method.lower()),
+            None,
+        )
+        is_new_payment_method = canonical_pm is None
+        final_payment_method = payment_method if is_new_payment_method else canonical_pm
 
     pending = {
         "kind": "transaction",
@@ -145,8 +167,9 @@ def execute_finance_tool(name: str, inputs: dict, known_categories: list[str]) -
         "merchant": (inputs.get("merchant") or "").strip(),
         "date": iso_date,
         "tags": (inputs.get("tags") or "").strip(),
-        "payment_method": (inputs.get("payment_method") or "").strip(),
+        "payment_method": final_payment_method,
         "notes": (inputs.get("notes") or "").strip(),
         "new_category": final_category if is_new_category else None,
+        "new_payment_method": final_payment_method if is_new_payment_method else None,
     }
     return "pending_confirmation", pending
