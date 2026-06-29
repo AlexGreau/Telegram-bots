@@ -1,5 +1,6 @@
 # sheets_client.py
 import os
+import secrets
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
@@ -83,3 +84,115 @@ def weeks_remaining_in_year() -> int:
     end_of_year = datetime(today.year, 12, 31)
     days_left = (end_of_year - today).days
     return days_left // 7
+
+
+# --- Finance -----------------------------------------------------------------
+
+def _get_finance_sheet():
+    gc = _get_client()
+    return gc.open_by_key(os.getenv("GOOGLE_SHEET_ID_FINANCE_SG"))
+
+
+def _get_transactions_tab():
+    return _get_finance_sheet().worksheet("transactions")
+
+
+def _get_categories_tab():
+    return _get_finance_sheet().worksheet("categories")
+
+
+def _get_payment_methods_tab():
+    return _get_finance_sheet().worksheet("payment_methods")
+
+
+def get_categories() -> list[str]:
+    ws = _get_categories_tab()
+    return [v.strip() for v in ws.col_values(1) if v and v.strip()]
+
+
+def add_category(name: str) -> None:
+    ws = _get_categories_tab()
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}", [[name]])
+
+
+def get_payment_methods() -> list[str]:
+    ws = _get_payment_methods_tab()
+    return [v.strip() for v in ws.col_values(1) if v and v.strip()]
+
+
+def add_payment_method(name: str) -> None:
+    ws = _get_payment_methods_tab()
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}", [[name]])
+
+
+def get_known_tags() -> list[str]:
+    ws = _get_transactions_tab()
+    raw = ws.col_values(9)  # column I = tags (story order)
+    if raw:
+        raw = raw[1:]  # skip header
+    seen: dict[str, str] = {}
+    for cell in raw:
+        for t in cell.split(","):
+            t = t.strip()
+            if t and t.lower() not in seen:
+                seen[t.lower()] = t
+    return sorted(seen.values())
+
+
+def _generate_id() -> str:
+    now = datetime.now()
+    return f"{now.strftime('%Y%m%d-%H%M%S')}-{secrets.token_hex(2)}"
+
+
+def log_transaction(
+    *,
+    txn_type: str,
+    amount: float,
+    currency: str,
+    amount_sgd: float,
+    category: str,
+    description: str,
+    merchant: str = "",
+    date: str,
+    tags: str = "",
+    payment_method: str = "",
+    notes: str = "",
+) -> dict:
+    """Append a transaction row in story order: A=date ... M=logged_at."""
+    ws = _get_transactions_tab()
+    txn_id = _generate_id()
+    logged_at = datetime.now().isoformat(timespec="seconds")
+    row = [
+        date, txn_type, description, merchant, category,
+        amount, currency, amount_sgd,
+        tags, payment_method, notes,
+        txn_id, logged_at,
+    ]
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}:M{next_row}", [row])
+    return {"id": txn_id, "logged_at": logged_at}
+
+
+def format_transaction_confirmation(pending: dict) -> str:
+    emoji = "💸" if pending["txn_type"] == "expense" else "💰"
+    base = pending.get("base_currency", "SGD")
+    amt = f"{pending['amount']:,.2f} {pending['currency']}"
+    if pending["currency"] != base:
+        amt += f" (~{pending['amount_sgd']:,.2f} {base})"
+    line = f"{emoji} *{amt}* — {pending['description']}"
+    if pending.get("merchant"):
+        line += f" @ {pending['merchant']}"
+    line += f"\n   {pending['category']} · {pending['date']}"
+    if pending.get("tags"):
+        line += f" · tags: {pending['tags']}"
+    if pending.get("payment_method"):
+        line += f" · {pending['payment_method']}"
+    if pending.get("notes"):
+        line += f"\n   📝 {pending['notes']}"
+    if pending.get("new_category"):
+        line += f"\n   ⚠️ New category will be created: '{pending['new_category']}'"
+    if pending.get("new_payment_method"):
+        line += f"\n   ⚠️ New payment method will be created: '{pending['new_payment_method']}'"
+    return line
