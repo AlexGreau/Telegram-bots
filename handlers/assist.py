@@ -23,6 +23,27 @@ from handlers.assist_services.flashcard_tools import FLASHCARD_TOOLS, execute_fl
 from handlers.assist_services.finance_tools import FINANCE_TOOLS, execute_finance_tool, LOG_TRANSACTION
 
 AWAIT_PROMPT = 1
+_PENDING_PLACEHOLDER = "Confirmation preview shown to the user. Outcome will follow."
+
+
+def _patch_pending_outcomes(history: list, outcomes: dict[str, str]) -> None:
+    """Update tool_result blocks in saved history with actual Confirm/Cancel outcomes."""
+    if not outcomes:
+        return
+    for msg in history:
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") != "tool_result":
+                continue
+            tid = block.get("tool_use_id")
+            if tid in outcomes:
+                block["content"] = outcomes[tid]
 
 def _build_system_prompt(
     known_categories: list[str],
@@ -193,6 +214,7 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for tb in tool_blocks:
                 tool_result, pending = await _execute_tool(tb.name, tb.input, context)
                 if pending:
+                    pending["tool_use_id"] = tb.id
                     pending_items.append(pending)
                 tool_results.append({
                     "type": "tool_result",
@@ -201,6 +223,15 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 })
 
             if pending_items:
+                pending_ids = {p["tool_use_id"] for p in pending_items}
+                persisted_results = [
+                    {**tr, "content": _PENDING_PLACEHOLDER} if tr["tool_use_id"] in pending_ids else tr
+                    for tr in tool_results
+                ]
+                messages.append({"role": "assistant", "content": response.content})
+                messages.append({"role": "user", "content": persisted_results})
+                context.user_data["assist_history"] = messages
+
                 context.user_data["pending_activities"] = pending_items
                 lines = []
                 for item in pending_items:
@@ -239,14 +270,25 @@ async def activity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    items = context.user_data.pop("pending_activities", [])
+    history = context.user_data.get("assist_history", [])
+
     if query.data == "activity_cancel":
-        context.user_data.pop("pending_activities", None)
+        outcomes = {
+            item["tool_use_id"]: "User cancelled. Nothing was logged."
+            for item in items if item.get("tool_use_id")
+        }
+        _patch_pending_outcomes(history, outcomes)
+        if outcomes:
+            history.append({"role": "assistant", "content": "Cancelled."})
+        context.user_data["assist_history"] = history
         await query.edit_message_text("❌ Cancelled.")
         return
 
-    items = context.user_data.pop("pending_activities", [])
+    outcomes: dict[str, str] = {}
     confirmations = []
     for item in items:
+        tid = item.get("tool_use_id")
         try:
             if item.get("kind") == "transaction":
                 if item.get("new_category"):
@@ -283,14 +325,33 @@ async def activity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     notes=item["notes"],
                 )
                 confirmations.append("✅ Logged:\n" + format_transaction_confirmation(item))
+                if tid:
+                    outcomes[tid] = (
+                        f"User confirmed. Transaction logged: {item['txn_type']} "
+                        f"{item['amount']} {item['currency']} ({item['category']}) — "
+                        f"{item['description']} on {item['date']}."
+                    )
             elif item["type"] == "swim":
                 stats = _log_swim(item["date"], item["distance"])
                 confirmations.append(format_swim_confirmation(item["date"], item["distance"], stats))
+                if tid:
+                    outcomes[tid] = f"User confirmed. Swim of {item['distance']}m logged on {item['date']}."
             else:
                 _log_run(item["date"], item["distance_km"], item["time"])
                 confirmations.append(format_run_confirmation(item["date"], item["distance_km"], item["time"]))
+                if tid:
+                    outcomes[tid] = (
+                        f"User confirmed. Run of {item['distance_km']}km in {item['time']} "
+                        f"logged on {item['date']}."
+                    )
         except Exception as e:
             confirmations.append(f"❌ Failed to log entry: {e}")
+            if tid:
+                outcomes[tid] = f"User confirmed but logging failed: {e}"
+    _patch_pending_outcomes(history, outcomes)
+    if outcomes:
+        history.append({"role": "assistant", "content": "\n\n".join(confirmations)})
+    context.user_data["assist_history"] = history
     await query.edit_message_text("\n\n".join(confirmations), parse_mode="Markdown")
 
 
