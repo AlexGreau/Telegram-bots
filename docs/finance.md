@@ -31,6 +31,29 @@ Every row gets classified along these dimensions. Pick the right one for the rig
 
 **Don't tag what's already a category.** If you reach for a tag called `food` or `transport`, stop — you have a Food or Transport category for that. Tags are for things that cut *across* categories. The bot will warn you if it's about to create a new tag, with a one-line reminder of this.
 
+### The `goods` tag — physical purchases across categories
+
+A `Shopping` category alone isn't enough to answer *"how much did I spend shopping?"*, because real shopping spans multiple categories (a laptop is `Tech`, a jacket is `Clothing`, a random Amazon trinket is `Shopping`). At the same time, not every `Tech` row is a purchase — a Claude API top-up or a software subscription is `Tech` but isn't "shopping".
+
+Convention: any row that's the acquisition of a **physical / tangible thing** gets the `goods` tag. The bot applies it automatically based on context — you only need to push back on borderline calls.
+
+| Row | category | `goods`? |
+|---|---|---|
+| Laptop | Tech | yes |
+| Headphones | Tech | yes |
+| Claude API top-up | Tech | no (service) |
+| GitHub subscription | Tech | no (service) |
+| Jacket | Clothing | yes |
+| Concert ticket | Entertainment | no (experience) |
+| Board game | Entertainment | yes |
+| Random Amazon doodad | Shopping | yes |
+| Restaurant meal | Food | no (experience) |
+| Mom's birthday gift | Shopping | yes (can also tag `gift`) |
+
+Then *"how much did I spend shopping?"* is a single aggregate over `tags_any=["goods"]` — cross-category, but services and subscriptions correctly excluded.
+
+Add `goods` to your `tags` tab so the bot sees it as canonical from the start.
+
 ---
 
 ## Logging
