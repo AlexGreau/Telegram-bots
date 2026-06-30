@@ -88,6 +88,24 @@ FINANCE_TOOLS = [
                     "type": "string",
                     "description": "Optional additional context.",
                 },
+                "recurring": {
+                    "type": "boolean",
+                    "description": (
+                        "True iff this transaction is part of a recurring series "
+                        "(subscription, rent, phone bill, utilities, salary). "
+                        "Set only when the user explicitly mentions the recurring nature. "
+                        "Default false."
+                    ),
+                },
+                "linked_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional id of a related transaction (refund of a purchase, "
+                        "reimbursement of an expense). MUST reference an existing row's id — "
+                        "ask the user for the id if they want to link, or wait until the search "
+                        "tool is available in a future update. NEVER invent or guess an id."
+                    ),
+                },
             },
             "required": ["type", "amount", "category", "description"],
         },
@@ -169,6 +187,8 @@ def execute_finance_tool(
         "tags": (inputs.get("tags") or "").strip(),
         "payment_method": final_payment_method,
         "notes": (inputs.get("notes") or "").strip(),
+        "recurring": bool(inputs.get("recurring", False)),
+        "linked_id": (inputs.get("linked_id") or "").strip(),
         "new_category": final_category if is_new_category else None,
         "new_payment_method": final_payment_method if is_new_payment_method else None,
     }

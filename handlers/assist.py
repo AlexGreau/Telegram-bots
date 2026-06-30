@@ -82,6 +82,11 @@ def _build_system_prompt(
         "If the user spends in a non-base currency without giving the converted amount, do NOT "
         "guess an FX rate; call log_transaction without amount_sgd and the tool will instruct "
         "you to ask the user. "
+        "Set log_transaction's `recurring=true` only when the user explicitly mentions the "
+        "transaction recurs (Netflix, rent, phone bill, utilities, salary). Leave it false otherwise. "
+        "To link a transaction to another (refund of a purchase, reimbursement of an expense), "
+        "pass `linked_id` as the id of the related row. The user can give you the id directly, "
+        "or you can ask them to paste it. NEVER invent or guess an id. "
         "Always respond in plain text without any markdown formatting."
     )
 
@@ -323,13 +328,20 @@ async def activity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     tags=item["tags"],
                     payment_method=item["payment_method"],
                     notes=item["notes"],
+                    recurring=item.get("recurring", False),
+                    linked_id=item.get("linked_id", ""),
                 )
                 confirmations.append("✅ Logged:\n" + format_transaction_confirmation(item))
                 if tid:
+                    extras = ""
+                    if item.get("recurring"):
+                        extras += " [recurring]"
+                    if item.get("linked_id"):
+                        extras += f" [linked_id={item['linked_id']}]"
                     outcomes[tid] = (
                         f"User confirmed. Transaction logged: {item['txn_type']} "
                         f"{item['amount']} {item['currency']} ({item['category']}) — "
-                        f"{item['description']} on {item['date']}."
+                        f"{item['description']} on {item['date']}.{extras}"
                     )
             elif item["type"] == "swim":
                 stats = _log_swim(item["date"], item["distance"])

@@ -159,19 +159,28 @@ def log_transaction(
     tags: str = "",
     payment_method: str = "",
     notes: str = "",
+    recurring: bool = False,
+    linked_id: str = "",
 ) -> dict:
-    """Append a transaction row in story order: A=date ... M=logged_at."""
+    """Append a transaction row. Column order A..O:
+    date | type | description | merchant | category | amount | currency | amount_sgd |
+    tags | payment_method | notes | recurring | id | linked_id | logged_at
+    """
     ws = _get_transactions_tab()
     txn_id = _generate_id()
     logged_at = datetime.now().isoformat(timespec="seconds")
     row = [
         date, txn_type, description, merchant, category,
         amount, currency, amount_sgd,
-        tags, payment_method, notes,
-        txn_id, logged_at,
+        tags, payment_method,
+        notes,
+        bool(recurring),
+        txn_id,
+        linked_id,
+        logged_at,
     ]
     next_row = len(ws.col_values(1)) + 1
-    ws.update(f"A{next_row}:M{next_row}", [row])
+    ws.update(f"A{next_row}:O{next_row}", [row])
     return {"id": txn_id, "logged_at": logged_at}
 
 
@@ -191,6 +200,13 @@ def format_transaction_confirmation(pending: dict) -> str:
         line += f" · {pending['payment_method']}"
     if pending.get("notes"):
         line += f"\n   📝 {pending['notes']}"
+    badges = []
+    if pending.get("recurring"):
+        badges.append("🔁 recurring")
+    if pending.get("linked_id"):
+        badges.append(f"🔗 linked: {pending['linked_id']}")
+    if badges:
+        line += "\n   " + " · ".join(badges)
     if pending.get("new_category"):
         line += f"\n   ⚠️ New category will be created: '{pending['new_category']}'"
     if pending.get("new_payment_method"):
