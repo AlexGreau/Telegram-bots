@@ -184,6 +184,25 @@ def log_transaction(
     return {"id": txn_id, "logged_at": logged_at}
 
 
+def get_all_transactions() -> list[dict]:
+    """Read all rows from the transactions tab as dicts keyed by header.
+
+    Coerces numeric (amount, amount_sgd) to float, recurring to bool, linked_id to str.
+    """
+    ws = _get_transactions_tab()
+    records = ws.get_all_records()
+    for r in records:
+        for k in ("amount", "amount_sgd"):
+            try:
+                r[k] = float(r.get(k, 0) or 0)
+            except (TypeError, ValueError):
+                r[k] = 0.0
+        v = r.get("recurring")
+        r["recurring"] = v is True or (isinstance(v, str) and v.strip().lower() in {"true", "yes", "y", "1"})
+        r["linked_id"] = str(r.get("linked_id") or "").strip()
+    return records
+
+
 def format_transaction_confirmation(pending: dict) -> str:
     emoji = "💸" if pending["txn_type"] == "expense" else "💰"
     base = pending.get("base_currency", "SGD")

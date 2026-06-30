@@ -20,7 +20,14 @@ from handlers.assist_services.sheets_client import (
     format_transaction_confirmation,
 )
 from handlers.assist_services.flashcard_tools import FLASHCARD_TOOLS, execute_flashcard_tool
-from handlers.assist_services.finance_tools import FINANCE_TOOLS, execute_finance_tool, LOG_TRANSACTION
+from handlers.assist_services.finance_tools import (
+    FINANCE_TOOLS,
+    execute_finance_tool,
+    execute_finance_query,
+    LOG_TRANSACTION,
+    SEARCH_TRANSACTIONS,
+    AGGREGATE_TRANSACTIONS,
+)
 
 AWAIT_PROMPT = 1
 _PENDING_PLACEHOLDER = "Confirmation preview shown to the user. Outcome will follow."
@@ -85,8 +92,25 @@ def _build_system_prompt(
         "Set log_transaction's `recurring=true` only when the user explicitly mentions the "
         "transaction recurs (Netflix, rent, phone bill, utilities, salary). Leave it false otherwise. "
         "To link a transaction to another (refund of a purchase, reimbursement of an expense), "
-        "pass `linked_id` as the id of the related row. The user can give you the id directly, "
-        "or you can ask them to paste it. NEVER invent or guess an id. "
+        "FIRST call `search_transactions` to find the parent row's id (search by description, "
+        "merchant, or date), THEN call `log_transaction` with `linked_id=<that id>`. "
+        "NEVER invent or guess an id. "
+        "You can answer questions about the user's recorded finances via `search_transactions` "
+        "and `aggregate_transactions`. Always call the tool — do not invent numbers. "
+        "Use `search_transactions(query=...)` for 'when did I buy X' / 'show me the row about Y' "
+        "/ 'what are my recurring expenses' (set `recurring=true`) / 'was X reimbursed' "
+        "(search the parent, then search with `linked_to_id=<id>`). "
+        "Use `aggregate_transactions` for totals, top-N breakdowns, monthly trends. Omit "
+        "`group_by` for a grand total. Group by `recurring` to compare recurring vs ad-hoc spending. "
+        "Show amounts in SGD by default; mention original currency only when the user asked "
+        "about a specific foreign-currency context (e.g. a trip). "
+        "For 'biggest expense per month' default to category interpretation: group by category "
+        "within each month, return the top category. Ask the user to clarify if they meant the "
+        "single largest transaction instead. "
+        "Resolve relative dates to ISO date_from/date_to. 'Last calendar month' = the previous "
+        f"full month (e.g. if today is {today}, last calendar month spans the entire previous month). "
+        "Tag aggregation fans out: a row with tags='a,b' contributes to both 'a' and 'b' totals, "
+        "so the sum of tag groups may exceed the grand total. "
         "Always respond in plain text without any markdown formatting."
     )
 
@@ -144,6 +168,8 @@ async def _execute_tool(name: str, inputs: dict, context: ContextTypes.DEFAULT_T
         known_cats = context.user_data.get("known_categories", [])
         known_pms = context.user_data.get("known_payment_methods", [])
         return execute_finance_tool(name, inputs, known_cats, known_pms)
+    if name in {SEARCH_TRANSACTIONS, AGGREGATE_TRANSACTIONS}:
+        return execute_finance_query(name, inputs), None
     if name == "log_swim":
         iso_date = inputs.get("date") or date_today.today().isoformat()
         formatted = format_date_for_swim(iso_date)
