@@ -1,4 +1,4 @@
-# Accounting
+# Finance
 
 Personal finance tracking inside the `/assist` Telegram bot. Backed by a Google Sheet referenced by `GOOGLE_SHEET_ID_FINANCE_SG`. Log expenses and income in natural language, query them later, and aggregate however you want.
 

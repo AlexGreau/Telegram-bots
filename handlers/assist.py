@@ -34,7 +34,7 @@ from handlers.assist_services.finance_tools import (
 AWAIT_PROMPT = 1
 _PENDING_PLACEHOLDER = "Confirmation preview shown to the user. Outcome will follow."
 
-_ACCOUNTING_GUIDE = (Path(__file__).parent.parent / "docs" / "accounting.md").read_text(encoding="utf-8")
+_FINANCE_GUIDE = (Path(__file__).parent.parent / "docs" / "finance.md").read_text(encoding="utf-8")
 
 
 def _patch_pending_outcomes(history: list, outcomes: dict[str, str]) -> None:
@@ -118,9 +118,9 @@ def _build_system_prompt(
         f"full month (e.g. if today is {today}, last calendar month spans the entire previous month). "
         "Tag aggregation fans out: a row with tags='a,b' contributes to both 'a' and 'b' totals, "
         "so the sum of tag groups may exceed the grand total. "
-        "When the user asks how the accounting feature works (what tags vs categories "
+        "When the user asks how the finance feature works (what tags vs categories "
         "are, how reimbursements get linked, what 'recurring' means, etc.), answer from "
-        "the accounting guide provided above. Paraphrase in plain text. "
+        "the finance guide provided above. Paraphrase in plain text. "
         "Always respond in plain text without any markdown formatting."
     )
 
@@ -237,12 +237,12 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     {
                         "type": "text",
                         "text": (
-                            "The following is the canonical user-facing guide for the accounting "
+                            "The following is the canonical user-facing guide for the finance "
                             "feature of this bot. Use it to answer the user's questions about how "
                             "the feature works, what tags vs categories are for, how to log "
                             "reimbursements, etc. Do not quote the markdown verbatim — paraphrase "
                             "in plain text.\n\n"
-                            + _ACCOUNTING_GUIDE
+                            + _FINANCE_GUIDE
                         ),
                         "cache_control": {"type": "ephemeral"},
                     },
