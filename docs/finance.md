@@ -143,9 +143,33 @@ The bot reads the sheet **fresh on every query** — no caching, no stale data. 
 
 ---
 
+## Reports
+
+`/report` pulls a deterministic monthly or yearly summary — same numbers, same layout every time. Unlike the `/assist` queries above, it doesn't go through Claude; the bot computes everything in Python directly from the sheet.
+
+| Command | Period |
+|---|---|
+| `/report` | current month |
+| `/report last` | previous month |
+| `/report may` | a named month, this year |
+| `/report 2026-05` | a specific month |
+| `/report 2026` | a full calendar year |
+
+Each report shows:
+
+- **Spent / Income / Net** for the period (net = income − spend; `+` means you saved).
+- **vs the previous period** — spend change as a percentage and net change as an absolute amount (e.g. `vs Apr: spend −4%, net +120`). The previous period is the prior month for a month report, the prior year for a year report.
+- **Top 3 spending categories** with amounts.
+- **Recurring vs ad-hoc** spend, split on the `recurring` flag.
+- **Budgets** — for month reports, each budgeted category (from the `budgets` tab) compared to its monthly limit, with `⚠️` when you're over and `✅` when under. Omitted for year reports and when no `budgets` tab exists.
+
+All amounts are in the base currency (SGD), summed from `amount_sgd`. The sheet is read fresh on every `/report`, same as queries.
+
+`/report` works on its own — no `/assist` session needed — and can also be sent mid-session.
+
 ## Sheet structure
 
-One Google Sheet (`GOOGLE_SHEET_ID_FINANCE_SG`), four tabs.
+One Google Sheet (`GOOGLE_SHEET_ID_FINANCE_SG`), four core tabs (plus an optional `budgets` tab).
 
 ### `transactions` — 15 columns
 
@@ -173,6 +197,10 @@ Column order matters — the bot writes by index, not by header name.
 
 Each is a one-column reference list. Column A, one value per row, no header. The bot reads these on session start to know what's canonical, and appends to them on Confirm when you accept a new value.
 
+### `budgets` (optional)
+
+Two columns, no header: `category` (col A) | `monthly_limit` (col B, in base currency). One row per budgeted category. Used by `/report` (see below) to flag categories you've gone over for the month. The tab is optional — if it doesn't exist, `/report` still works and just omits the budget section. Maintained by hand in Sheets, like the other reference tabs (no bot command to edit budgets yet).
+
 ---
 
 ## Tips & gotchas
@@ -193,6 +221,7 @@ Each is a one-column reference list. Column A, one value per row, no header. The
 |---|---|
 | `/assist` | Start a session. Loads categories, payment methods, and tags from the sheet. |
 | `/done` | End the session. Clears conversation history. |
+| `/report [period]` | Deterministic monthly / yearly finance summary. See [Reports](#reports). No session needed. |
 
 Sessions time out after 30 minutes of inactivity.
 

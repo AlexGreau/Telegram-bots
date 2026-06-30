@@ -109,6 +109,10 @@ def _get_tags_tab():
     return _get_finance_sheet().worksheet("tags")
 
 
+def _get_budgets_tab():
+    return _get_finance_sheet().worksheet("budgets")
+
+
 def get_categories() -> list[str]:
     ws = _get_categories_tab()
     return [v.strip() for v in ws.col_values(1) if v and v.strip()]
@@ -140,6 +144,33 @@ def add_tag(name: str) -> None:
     ws = _get_tags_tab()
     next_row = len(ws.col_values(1)) + 1
     ws.update(f"A{next_row}", [[name]])
+
+
+def get_budgets() -> dict[str, float]:
+    """Read the `budgets` tab into {category: monthly_limit_sgd}.
+
+    Col A = category, col B = monthly limit in base currency. Returns {} if the
+    tab doesn't exist yet (budgets are optional groundwork) or can't be read, so
+    callers degrade gracefully.
+    """
+    try:
+        ws = _get_budgets_tab()
+        records = ws.get_all_values()
+    except Exception:
+        return {}
+    budgets: dict[str, float] = {}
+    for row in records:
+        if len(row) < 2:
+            continue
+        category = (row[0] or "").strip()
+        raw_limit = str(row[1] or "").replace(",", "").strip()
+        if not category or not raw_limit:
+            continue
+        try:
+            budgets[category] = float(raw_limit)
+        except ValueError:
+            continue  # skip header row / non-numeric
+    return budgets
 
 
 def _generate_id() -> str:
