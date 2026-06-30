@@ -249,6 +249,7 @@ def execute_finance_tool(
     inputs: dict,
     known_categories: list[str],
     known_payment_methods: list[str],
+    known_tags: list[str],
 ) -> tuple[str, dict | None]:
     if name != LOG_TRANSACTION:
         return f"Unknown finance tool: {name}", None
@@ -304,6 +305,24 @@ def execute_finance_tool(
         is_new_payment_method = canonical_pm is None
         final_payment_method = payment_method if is_new_payment_method else canonical_pm
 
+    raw_tags = [t.strip() for t in (inputs.get("tags") or "").split(",") if t.strip()]
+    known_tags_lower = {t.lower(): t for t in known_tags}
+    canonical_tags: list[str] = []
+    new_tags: list[str] = []
+    seen: set[str] = set()
+    for t in raw_tags:
+        canonical = known_tags_lower.get(t.lower())
+        if canonical is None:
+            final = t
+            if final.lower() not in seen:
+                new_tags.append(final)
+        else:
+            final = canonical
+        if final.lower() not in seen:
+            canonical_tags.append(final)
+            seen.add(final.lower())
+    final_tags = ",".join(canonical_tags)
+
     pending = {
         "kind": "transaction",
         "txn_type": txn_type,
@@ -315,13 +334,14 @@ def execute_finance_tool(
         "description": inputs.get("description", "").strip(),
         "merchant": (inputs.get("merchant") or "").strip(),
         "date": iso_date,
-        "tags": (inputs.get("tags") or "").strip(),
+        "tags": final_tags,
         "payment_method": final_payment_method,
         "notes": (inputs.get("notes") or "").strip(),
         "recurring": bool(inputs.get("recurring", False)),
         "linked_id": (inputs.get("linked_id") or "").strip(),
         "new_category": final_category if is_new_category else None,
         "new_payment_method": final_payment_method if is_new_payment_method else None,
+        "new_tags": new_tags,
     }
     return "pending_confirmation", pending
 

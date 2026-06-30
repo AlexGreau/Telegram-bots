@@ -1,5 +1,6 @@
 import anthropic
 from datetime import date as date_today
+from pathlib import Path
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 
@@ -16,6 +17,7 @@ from handlers.assist_services.sheets_client import (
     get_payment_methods,
     add_payment_method,
     get_known_tags,
+    add_tag,
     log_transaction as _log_transaction,
     format_transaction_confirmation,
 )
@@ -31,6 +33,8 @@ from handlers.assist_services.finance_tools import (
 
 AWAIT_PROMPT = 1
 _PENDING_PLACEHOLDER = "Confirmation preview shown to the user. Outcome will follow."
+
+_FINANCE_GUIDE = (Path(__file__).parent.parent / "docs" / "finance.md").read_text(encoding="utf-8")
 
 
 def _patch_pending_outcomes(history: list, outcomes: dict[str, str]) -> None:
@@ -83,9 +87,12 @@ def _build_system_prompt(
         "new short Title-Case name — the user will confirm before it is added. Omit "
         "payment_method entirely if the user didn't mention how they paid. "
         f"Known tags so far: {tags}. "
-        "When tagging, reuse an existing tag if it captures the same concept (e.g. don't introduce "
-        "'japan_trip' if 'japan-trip' already exists). Only invent a new tag when nothing fits. "
-        "Tags are not confirmed by the user, so apply the principle yourself. "
+        "When tagging, prefer existing tags from this list (case-insensitive match). "
+        "Tags are for cross-cutting groupings that span multiple categories — trips, events, "
+        "projects, recipients, conditional flags. They are NOT for things that already fit an "
+        "existing category. Only propose a new short, kebab-case tag when the user describes a "
+        "cross-cutting context that no existing tag captures. The user will confirm before any "
+        "new tag is added to the canonical list. "
         "If the user spends in a non-base currency without giving the converted amount, do NOT "
         "guess an FX rate; call log_transaction without amount_sgd and the tool will instruct "
         "you to ask the user. "
@@ -111,6 +118,9 @@ def _build_system_prompt(
         f"full month (e.g. if today is {today}, last calendar month spans the entire previous month). "
         "Tag aggregation fans out: a row with tags='a,b' contributes to both 'a' and 'b' totals, "
         "so the sum of tag groups may exceed the grand total. "
+        "When the user asks how the finance feature works (what tags vs categories "
+        "are, how reimbursements get linked, what 'recurring' means, etc.), answer from "
+        "the finance guide provided above. Paraphrase in plain text. "
         "Always respond in plain text without any markdown formatting."
     )
 
@@ -167,7 +177,8 @@ async def _execute_tool(name: str, inputs: dict, context: ContextTypes.DEFAULT_T
     if name == LOG_TRANSACTION:
         known_cats = context.user_data.get("known_categories", [])
         known_pms = context.user_data.get("known_payment_methods", [])
-        return execute_finance_tool(name, inputs, known_cats, known_pms)
+        known_tags = context.user_data.get("known_tags", [])
+        return execute_finance_tool(name, inputs, known_cats, known_pms, known_tags)
     if name in {SEARCH_TRANSACTIONS, AGGREGATE_TRANSACTIONS}:
         return execute_finance_query(name, inputs), None
     if name == "log_swim":
@@ -222,11 +233,25 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             response = await client.messages.create(
                 model="claude-sonnet-4-6",
                 max_tokens=1024,
-                system=[{
-                    "type": "text",
-                    "text": system_text,
-                    "cache_control": {"type": "ephemeral"},
-                }],
+                system=[
+                    {
+                        "type": "text",
+                        "text": (
+                            "The following is the canonical user-facing guide for the finance "
+                            "feature of this bot. Use it to answer the user's questions about how "
+                            "the feature works, what tags vs categories are for, how to log "
+                            "reimbursements, etc. Do not quote the markdown verbatim — paraphrase "
+                            "in plain text.\n\n"
+                            + _FINANCE_GUIDE
+                        ),
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                    {
+                        "type": "text",
+                        "text": system_text,
+                        "cache_control": {"type": "ephemeral"},
+                    },
+                ],
                 tools=_TOOLS,
                 messages=messages,
             )
@@ -334,14 +359,16 @@ async def activity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     if item["new_payment_method"] not in pms:
                         pms.append(item["new_payment_method"])
                         context.user_data["known_payment_methods"] = pms
-                if item.get("tags"):
-                    existing = context.user_data.get("known_tags", [])
-                    existing_lower = {t.lower() for t in existing}
-                    for t in (s.strip() for s in item["tags"].split(",")):
-                        if t and t.lower() not in existing_lower:
-                            existing.append(t)
-                            existing_lower.add(t.lower())
-                    context.user_data["known_tags"] = existing
+                new_tags = item.get("new_tags") or []
+                if new_tags:
+                    cache = context.user_data.get("known_tags", [])
+                    cache_lower = {t.lower() for t in cache}
+                    for t in new_tags:
+                        add_tag(t)
+                        if t.lower() not in cache_lower:
+                            cache.append(t)
+                            cache_lower.add(t.lower())
+                    context.user_data["known_tags"] = cache
                 _log_transaction(
                     txn_type=item["txn_type"],
                     amount=item["amount"],

@@ -105,6 +105,10 @@ def _get_payment_methods_tab():
     return _get_finance_sheet().worksheet("payment_methods")
 
 
+def _get_tags_tab():
+    return _get_finance_sheet().worksheet("tags")
+
+
 def get_categories() -> list[str]:
     ws = _get_categories_tab()
     return [v.strip() for v in ws.col_values(1) if v and v.strip()]
@@ -128,17 +132,14 @@ def add_payment_method(name: str) -> None:
 
 
 def get_known_tags() -> list[str]:
-    ws = _get_transactions_tab()
-    raw = ws.col_values(9)  # column I = tags (story order)
-    if raw:
-        raw = raw[1:]  # skip header
-    seen: dict[str, str] = {}
-    for cell in raw:
-        for t in cell.split(","):
-            t = t.strip()
-            if t and t.lower() not in seen:
-                seen[t.lower()] = t
-    return sorted(seen.values())
+    ws = _get_tags_tab()
+    return [v.strip() for v in ws.col_values(1) if v and v.strip()]
+
+
+def add_tag(name: str) -> None:
+    ws = _get_tags_tab()
+    next_row = len(ws.col_values(1)) + 1
+    ws.update(f"A{next_row}", [[name]])
 
 
 def _generate_id() -> str:
@@ -230,4 +231,9 @@ def format_transaction_confirmation(pending: dict) -> str:
         line += f"\n   ⚠️ New category will be created: '{pending['new_category']}'"
     if pending.get("new_payment_method"):
         line += f"\n   ⚠️ New payment method will be created: '{pending['new_payment_method']}'"
+    new_tags = pending.get("new_tags") or []
+    if new_tags:
+        joined = ", ".join(f"'{t}'" for t in new_tags)
+        line += f"\n   ⚠️ New tags will be created: {joined}"
+        line += "\n   ℹ️ Tags are for cross-cutting groupings (trips, events, projects, recipients, conditional flags) — not for things that fit a category."
     return line
