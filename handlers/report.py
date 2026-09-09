@@ -4,7 +4,7 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
 from config import Config
-from handlers.assist_services.finance_report import (
+from handlers.assist_services.skills.finance.report import (
     build_report,
     format_report,
     resolve_period,
