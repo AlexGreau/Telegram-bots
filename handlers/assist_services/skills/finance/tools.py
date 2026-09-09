@@ -1,6 +1,24 @@
+"""Finance capability inside the /assist agent loop.
+
+Owns the log/search/aggregate tool schemas, the finance system-prompt
+instructions, and the preview + commit steps for a pending transaction.
+The read-only queries and the deterministic /report command both build on the
+shared primitives in core.py.
+"""
 import json
 import os
 from datetime import date as date_today
+
+from handlers.assist_services.skills.base import Skill
+from handlers.assist_services.skills.finance.core import aggregate, apply_filters, order_rows
+from handlers.assist_services.sheets_client import (
+    add_category,
+    add_payment_method,
+    add_tag,
+    format_transaction_confirmation,
+    get_all_transactions,
+    log_transaction as _log_transaction,
+)
 
 LOG_TRANSACTION = "log_transaction"
 SEARCH_TRANSACTIONS = "search_transactions"
@@ -244,16 +262,75 @@ FINANCE_TOOLS = [
 ]
 
 
-def execute_finance_tool(
-    name: str,
+def _instructions(ctx: dict) -> str:
+    today = ctx["today"]
+    base_currency = ctx["base_currency"]
+    known_categories = ctx.get("known_categories") or []
+    known_tags = ctx.get("known_tags") or []
+    known_payment_methods = ctx.get("known_payment_methods") or []
+    cats = ", ".join(known_categories) if known_categories else "(none yet)"
+    tags = ", ".join(known_tags) if known_tags else "(none yet)"
+    pms = ", ".join(known_payment_methods) if known_payment_methods else "(none yet)"
+    return (
+        "You can log personal finance transactions (expenses and income) via log_transaction. "
+        f"Base currency is {base_currency}. "
+        f"Known categories: {cats}. "
+        "Prefer a category from this list when one fits. If none fits, propose a new short "
+        "Title-Case category name — the user will confirm before it is added. "
+        f"Known payment methods: {pms}. "
+        "When a payment method is mentioned, prefer one from this list. If none fits, propose a "
+        "new short Title-Case name — the user will confirm before it is added. Omit "
+        "payment_method entirely if the user didn't mention how they paid. "
+        f"Known tags so far: {tags}. "
+        "When tagging, prefer existing tags from this list (case-insensitive match). "
+        "Tags are for cross-cutting groupings that span multiple categories — trips, events, "
+        "projects, recipients, conditional flags. They are NOT for things that already fit an "
+        "existing category. Only propose a new short, kebab-case tag when the user describes a "
+        "cross-cutting context that no existing tag captures. The user will confirm before any "
+        "new tag is added to the canonical list. "
+        "Auto-apply the `goods` tag whenever the user logs an expense for a physical/tangible "
+        "item being acquired — laptops, headphones, clothing, books, household items, gifts, "
+        "gadgets, furniture, etc. Do NOT apply `goods` to services, subscriptions, API top-ups "
+        "/ credits, software licences, experiences (concerts, meals out, travel transport), "
+        "bills, salary, refunds, or anything `recurring=true`. The `goods` tag lets the user "
+        "ask 'how much did I spend shopping' across all categories. "
+        "If the user spends in a non-base currency without giving the converted amount, do NOT "
+        "guess an FX rate; call log_transaction without amount_sgd and the tool will instruct "
+        "you to ask the user. "
+        "Set log_transaction's `recurring=true` only when the user explicitly mentions the "
+        "transaction recurs (Netflix, rent, phone bill, utilities, salary). Leave it false otherwise. "
+        "To link a transaction to another (refund of a purchase, reimbursement of an expense), "
+        "FIRST call `search_transactions` to find the parent row's id (search by description, "
+        "merchant, or date), THEN call `log_transaction` with `linked_id=<that id>`. "
+        "NEVER invent or guess an id. "
+        "You can answer questions about the user's recorded finances via `search_transactions` "
+        "and `aggregate_transactions`. Always call the tool — do not invent numbers. "
+        "Use `search_transactions(query=...)` for 'when did I buy X' / 'show me the row about Y' "
+        "/ 'what are my recurring expenses' (set `recurring=true`) / 'was X reimbursed' "
+        "(search the parent, then search with `linked_to_id=<id>`). "
+        "Use `aggregate_transactions` for totals, top-N breakdowns, monthly trends. Omit "
+        "`group_by` for a grand total. Group by `recurring` to compare recurring vs ad-hoc spending. "
+        "Show amounts in SGD by default; mention original currency only when the user asked "
+        "about a specific foreign-currency context (e.g. a trip). "
+        "For 'biggest expense per month' default to category interpretation: group by category "
+        "within each month, return the top category. Ask the user to clarify if they meant the "
+        "single largest transaction instead. "
+        "Resolve relative dates to ISO date_from/date_to. 'Last calendar month' = the previous "
+        f"full month (e.g. if today is {today}, last calendar month spans the entire previous month). "
+        "Tag aggregation fans out: a row with tags='a,b' contributes to both 'a' and 'b' totals, "
+        "so the sum of tag groups may exceed the grand total. "
+        "When the user asks how the finance feature works (what tags vs categories "
+        "are, how reimbursements get linked, what 'recurring' means, etc.), answer from "
+        "the finance guide provided above. Paraphrase in plain text. "
+    )
+
+
+def _build_transaction_pending(
     inputs: dict,
     known_categories: list[str],
     known_payment_methods: list[str],
     known_tags: list[str],
 ) -> tuple[str, dict | None]:
-    if name != LOG_TRANSACTION:
-        return f"Unknown finance tool: {name}", None
-
     base_ccy = os.getenv("DEFAULT_CURRENCY", "SGD").upper()
 
     txn_type = inputs.get("type")
@@ -346,17 +423,13 @@ def execute_finance_tool(
     return "pending_confirmation", pending
 
 
-# --- Read-only queries -------------------------------------------------------
-
-def execute_finance_query(name: str, inputs: dict) -> str:
+def _run_query(name: str, inputs: dict) -> str:
     """Read-only query. Returns JSON string for Claude."""
-    from handlers.assist_services.sheets_client import get_all_transactions  # lazy to avoid cycles
-
     rows = get_all_transactions()
-    rows = _apply_filters(rows, inputs)
+    rows = apply_filters(rows, inputs)
 
     if name == SEARCH_TRANSACTIONS:
-        rows = _order_rows(rows, inputs.get("order_by", "date_desc"))
+        rows = order_rows(rows, inputs.get("order_by", "date_desc"))
         limit = inputs.get("limit", 50)
         try:
             limit = min(int(limit), 500)
@@ -369,7 +442,7 @@ def execute_finance_query(name: str, inputs: dict) -> str:
     if name == AGGREGATE_TRANSACTIONS:
         group_by = inputs.get("group_by")
         metric = inputs.get("metric", "sum_sgd")
-        groups = _aggregate(rows, group_by, metric)
+        groups = aggregate(rows, group_by, metric)
         order = inputs.get("order", "desc")
         groups.sort(key=lambda g: g["value"], reverse=(order != "asc"))
         top_n = inputs.get("top_n")
@@ -387,117 +460,78 @@ def execute_finance_query(name: str, inputs: dict) -> str:
     return json.dumps({"error": f"Unknown query: {name}"})
 
 
-def _apply_filters(rows: list[dict], inputs: dict) -> list[dict]:
-    query = (inputs.get("query") or "").strip().lower()
-    type_ = inputs.get("type")
-    cats = {c.lower() for c in inputs.get("categories") or []}
-    merchants = {m.lower() for m in inputs.get("merchants") or []}
-    tags_any = {t.lower() for t in inputs.get("tags_any") or []}
-    tags_all = {t.lower() for t in inputs.get("tags_all") or []}
-    pms = {p.lower() for p in inputs.get("payment_methods") or []}
-    currencies = {c.upper() for c in inputs.get("currencies") or []}
-    recurring = inputs.get("recurring")
-    linked_to_id = (inputs.get("linked_to_id") or "").strip()
-    date_from = inputs.get("date_from")
-    date_to = inputs.get("date_to")
-    amount_sgd_min = inputs.get("amount_sgd_min")
-    amount_sgd_max = inputs.get("amount_sgd_max")
-
-    def keep(r: dict) -> bool:
-        if query:
-            blob = f"{r.get('description', '')} {r.get('merchant', '')} {r.get('notes', '')}".lower()
-            if query not in blob:
-                return False
-        if type_ and r.get("type") != type_:
-            return False
-        if cats and (r.get("category") or "").lower() not in cats:
-            return False
-        if merchants and (r.get("merchant") or "").lower() not in merchants:
-            return False
-        if pms and (r.get("payment_method") or "").lower() not in pms:
-            return False
-        if currencies and (r.get("currency") or "").upper() not in currencies:
-            return False
-        if tags_any or tags_all:
-            row_tags = {t.strip().lower() for t in (r.get("tags") or "").split(",") if t.strip()}
-            if tags_any and not (tags_any & row_tags):
-                return False
-            if tags_all and not tags_all.issubset(row_tags):
-                return False
-        if recurring is not None and bool(r.get("recurring")) != bool(recurring):
-            return False
-        if linked_to_id and r.get("linked_id") != linked_to_id:
-            return False
-        if date_from and (r.get("date") or "") < date_from:
-            return False
-        if date_to and (r.get("date") or "") > date_to:
-            return False
-        amt = r.get("amount_sgd") or 0
-        if amount_sgd_min is not None and amt < amount_sgd_min:
-            return False
-        if amount_sgd_max is not None and amt > amount_sgd_max:
-            return False
-        return True
-
-    return [r for r in rows if keep(r)]
+async def _execute(name: str, inputs: dict, context) -> tuple[str, dict | None]:
+    if name == LOG_TRANSACTION:
+        known_cats = context.user_data.get("known_categories", [])
+        known_pms = context.user_data.get("known_payment_methods", [])
+        known_tags = context.user_data.get("known_tags", [])
+        return _build_transaction_pending(inputs, known_cats, known_pms, known_tags)
+    if name in {SEARCH_TRANSACTIONS, AGGREGATE_TRANSACTIONS}:
+        return _run_query(name, inputs), None
+    return f"Unknown finance tool: {name}", None
 
 
-def _order_rows(rows: list[dict], order_by: str) -> list[dict]:
-    if order_by == "date_asc":
-        return sorted(rows, key=lambda r: r.get("date", ""))
-    if order_by == "amount_sgd_desc":
-        return sorted(rows, key=lambda r: r.get("amount_sgd") or 0, reverse=True)
-    if order_by == "amount_sgd_asc":
-        return sorted(rows, key=lambda r: r.get("amount_sgd") or 0)
-    # default: date_desc
-    return sorted(rows, key=lambda r: r.get("date", ""), reverse=True)
+def _preview(item: dict) -> str:
+    return format_transaction_confirmation(item)
 
 
-def _row_to_group_keys(row: dict, group_by: str) -> list[str]:
-    if group_by == "month":
-        return [(row.get("date") or "")[:7] or "(blank)"]
-    if group_by == "year":
-        return [(row.get("date") or "")[:4] or "(blank)"]
-    if group_by == "weekday":
-        try:
-            return [date_today.fromisoformat(row.get("date", "")).strftime("%A")]
-        except (ValueError, TypeError):
-            return ["(unknown)"]
-    if group_by == "tag":
-        tags = [t.strip() for t in (row.get("tags") or "").split(",") if t.strip()]
-        return tags  # fan-out — row with no tags contributes to no group
-    if group_by == "recurring":
-        return ["True" if row.get("recurring") else "False"]
-    val = row.get(group_by) or ""
-    return [val or "(blank)"]
+def _commit(item: dict, context) -> tuple[str, str]:
+    if item.get("new_category"):
+        add_category(item["new_category"])
+        cats = context.user_data.get("known_categories", [])
+        if item["new_category"] not in cats:
+            cats.append(item["new_category"])
+            context.user_data["known_categories"] = cats
+    if item.get("new_payment_method"):
+        add_payment_method(item["new_payment_method"])
+        pms = context.user_data.get("known_payment_methods", [])
+        if item["new_payment_method"] not in pms:
+            pms.append(item["new_payment_method"])
+            context.user_data["known_payment_methods"] = pms
+    new_tags = item.get("new_tags") or []
+    if new_tags:
+        cache = context.user_data.get("known_tags", [])
+        cache_lower = {t.lower() for t in cache}
+        for t in new_tags:
+            add_tag(t)
+            if t.lower() not in cache_lower:
+                cache.append(t)
+                cache_lower.add(t.lower())
+        context.user_data["known_tags"] = cache
+    _log_transaction(
+        txn_type=item["txn_type"],
+        amount=item["amount"],
+        currency=item["currency"],
+        amount_sgd=item["amount_sgd"],
+        category=item["category"],
+        description=item["description"],
+        merchant=item.get("merchant", ""),
+        date=item["date"],
+        tags=item["tags"],
+        payment_method=item["payment_method"],
+        notes=item["notes"],
+        recurring=item.get("recurring", False),
+        linked_id=item.get("linked_id", ""),
+    )
+    confirmation = "✅ Logged:\n" + format_transaction_confirmation(item)
+    extras = ""
+    if item.get("recurring"):
+        extras += " [recurring]"
+    if item.get("linked_id"):
+        extras += f" [linked_id={item['linked_id']}]"
+    outcome = (
+        f"User confirmed. Transaction logged: {item['txn_type']} "
+        f"{item['amount']} {item['currency']} ({item['category']}) — "
+        f"{item['description']} on {item['date']}.{extras}"
+    )
+    return confirmation, outcome
 
 
-def _aggregate(rows: list[dict], group_by: str | None, metric: str) -> list[dict]:
-    if not group_by:
-        return [_compute_metric("total", rows, metric)]
-
-    groups: dict[str, list[dict]] = {}
-    for r in rows:
-        for k in _row_to_group_keys(r, group_by):
-            groups.setdefault(k, []).append(r)
-    return [_compute_metric(k, v, metric) for k, v in groups.items()]
-
-
-def _compute_metric(key: str, rows_in_group: list[dict], metric: str) -> dict:
-    amts = [r.get("amount_sgd") or 0 for r in rows_in_group]
-    n = len(rows_in_group)
-    if metric == "count":
-        v = n
-    elif not amts:
-        v = 0
-    elif metric == "sum_sgd":
-        v = round(sum(amts), 2)
-    elif metric == "avg_sgd":
-        v = round(sum(amts) / n, 2)
-    elif metric == "max_sgd":
-        v = round(max(amts), 2)
-    elif metric == "min_sgd":
-        v = round(min(amts), 2)
-    else:
-        v = 0
-    return {"group": key, "value": v, "count": n}
+FINANCE_SKILL = Skill(
+    name="finance",
+    tools=FINANCE_TOOLS,
+    execute=_execute,
+    instructions=_instructions,
+    preview=_preview,
+    commit=_commit,
+)

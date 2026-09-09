@@ -2,14 +2,14 @@
 
 Pure functions (no Telegram, no network): resolve a period from a user argument,
 build the report numbers by reusing the filter/aggregate primitives from
-finance_tools, and format the result as plain text with light Markdown.
+core.py, and format the result as plain text with light Markdown.
 """
 import calendar
 import os
 from dataclasses import dataclass
 from datetime import date
 
-from handlers.assist_services.finance_tools import _aggregate, _apply_filters
+from handlers.assist_services.skills.finance.core import aggregate, apply_filters
 
 _MONTHS = {m.lower(): i for i, m in enumerate(calendar.month_name) if m}
 _MONTHS.update({m.lower(): i for i, m in enumerate(calendar.month_abbr) if m})
@@ -97,15 +97,15 @@ def resolve_period(arg: str | None, today: date) -> Period:
 
 
 def _category_spend(expense_rows: list[dict]) -> dict[str, float]:
-    return {g["group"]: g["value"] for g in _aggregate(expense_rows, "category", "sum_sgd")}
+    return {g["group"]: g["value"] for g in aggregate(expense_rows, "category", "sum_sgd")}
 
 
 def _totals(rows: list[dict], period_from: str, period_to: str) -> dict:
-    scoped = _apply_filters(rows, {"date_from": period_from, "date_to": period_to})
+    scoped = apply_filters(rows, {"date_from": period_from, "date_to": period_to})
     expenses = [r for r in scoped if r.get("type") == "expense"]
     incomes = [r for r in scoped if r.get("type") == "income"]
-    spent = _aggregate(expenses, None, "sum_sgd")[0]["value"] if expenses else 0.0
-    income = _aggregate(incomes, None, "sum_sgd")[0]["value"] if incomes else 0.0
+    spent = aggregate(expenses, None, "sum_sgd")[0]["value"] if expenses else 0.0
+    income = aggregate(incomes, None, "sum_sgd")[0]["value"] if incomes else 0.0
     return {"expenses": expenses, "spent": spent, "income": income, "net": round(income - spent, 2)}
 
 
@@ -118,7 +118,7 @@ def build_report(rows: list[dict], period: Period, budgets: dict[str, float]) ->
     cat_spend = _category_spend(cur["expenses"])
     top = sorted(cat_spend.items(), key=lambda kv: kv[1], reverse=True)[:3]
 
-    recurring_groups = {g["group"]: g["value"] for g in _aggregate(cur["expenses"], "recurring", "sum_sgd")}
+    recurring_groups = {g["group"]: g["value"] for g in aggregate(cur["expenses"], "recurring", "sum_sgd")}
     recurring_spend = recurring_groups.get("True", 0.0)
     adhoc_spend = recurring_groups.get("False", 0.0)
 
