@@ -1,0 +1,15 @@
+[Unit]
+Description=Telegram Bot Deploy Webhook
+After=network.target
+
+[Service]
+Type=simple
+User=techman
+WorkingDirectory=/home/techman/Code/Telegram-bots
+Environment="PATH=/home/techman/Code/Telegram-bots/venv/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=/home/techman/Code/Telegram-bots/venv/bin/python webhook.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

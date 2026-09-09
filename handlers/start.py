@@ -9,6 +9,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/hello - Enter echo mode (repeats what you say)\n"
         "/scrabble - Enter Scrabble checker mode\n"
         "/assist - Ask Claude AI for help (authorized users only)\n"
+        "/update - Pull latest code and restart (authorized users only)\n"
         "/done - Exit current mode\n"
         "/help - Show this message again"
     )
@@ -20,6 +21,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/hello - Enter echo mode (repeats what you say)\n"
         "/scrabble - Enter Scrabble checker mode\n"
         "/assist - Ask Claude AI for help (authorized users only)\n"
+        "/update - Pull latest code and restart (authorized users only)\n"
         "/done - Exit current mode\n"
         "/help - Show this message"
     )

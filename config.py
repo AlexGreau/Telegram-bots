@@ -28,3 +28,10 @@ class Config:
         for uid in os.environ.get("ASSIST_ALLOWED_IDS", "").split(",")
         if uid.strip().isdigit()
     )
+
+    # Telegram user IDs allowed to run /update. Falls back to the assist allowlist.
+    UPDATE_ALLOWED_IDS = set(
+        int(uid.strip())
+        for uid in os.environ.get("UPDATE_ALLOWED_IDS", "").split(",")
+        if uid.strip().isdigit()
+    ) or ASSIST_ALLOWED_IDS

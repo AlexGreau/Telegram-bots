@@ -120,6 +120,63 @@ DEBUG=False
 
 **Note:** You only need to restart the service. No need to recreate the venv or reinstall dependencies.
 
+## Auto-deploy
+
+Two ways to get new code onto the Pi without SSHing in. Both call `deploy.sh`,
+which fetches, fast-forwards, reinstalls dependencies **only** if
+`requirements.txt` changed, and exits `10` when there was nothing to pull.
+
+### `/update` from Telegram
+
+Send `/update` to the bot. It pulls, replies with the new commit, then exits -
+`Restart=always` in the unit brings it straight back on the new code, so no
+sudo is involved. Restricted to `UPDATE_ALLOWED_IDS` (defaults to
+`ASSIST_ALLOWED_IDS`).
+
+### GitHub webhook (deploy on push)
+
+A second service listens for GitHub push events and restarts the bot.
+
+1. Pick a secret and add it to `.env`:
+
+   ```env
+   GITHUB_WEBHOOK_SECRET=<long random string>
+   DEPLOY_BRANCH=main
+   WEBHOOK_PORT=9000
+   WEBHOOK_PATH=/deploy
+   ```
+
+2. Let the bot user restart the service without a password:
+
+   ```bash
+   sudo visudo -f /etc/sudoers.d/telegram-bot-deploy
+   # add this line (check `which systemctl` if the path differs):
+   techman ALL=(root) NOPASSWD: /usr/bin/systemctl restart telegram-bot.service
+   ```
+
+3. Install and start the listener:
+
+   ```bash
+   sudo cp telegram-bot-webhook.service /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now telegram-bot-webhook.service
+   sudo journalctl -u telegram-bot-webhook.service -f
+   ```
+
+4. Expose port 9000 to GitHub - either a router port-forward, or a tunnel
+   (`cloudflared tunnel --url http://localhost:9000`) if the Pi has no public IP.
+
+5. In the repo: **Settings → Webhooks → Add webhook**
+   - Payload URL: `https://<your-host>/deploy`
+   - Content type: `application/json`
+   - Secret: the same `GITHUB_WEBHOOK_SECRET`
+   - Events: *Just the push event*
+
+   GitHub's "Redeliver" button on the ping event is the quickest way to test.
+
+Requests without a valid `X-Hub-Signature-256`, for another branch, or for
+another event type are rejected or ignored.
+
 ## Adding Handlers
 
 1. Create a new file in `handlers/` (e.g., `handlers/myhandler.py`)
