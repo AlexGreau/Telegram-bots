@@ -1,6 +1,5 @@
 import anthropic
 from datetime import date as date_today
-from pathlib import Path
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import CommandHandler, MessageHandler, filters, ContextTypes, ConversationHandler, CallbackQueryHandler
 
@@ -20,8 +19,6 @@ from handlers.assist_services.skills import (
 
 AWAIT_PROMPT = 1
 _PENDING_PLACEHOLDER = "Confirmation preview shown to the user. Outcome will follow."
-
-_FINANCE_GUIDE = (Path(__file__).parent.parent / "docs" / "finance.md").read_text(encoding="utf-8")
 
 
 def _patch_pending_outcomes(history: list, outcomes: dict[str, str]) -> None:
@@ -111,18 +108,6 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 model="claude-sonnet-4-6",
                 max_tokens=1024,
                 system=[
-                    {
-                        "type": "text",
-                        "text": (
-                            "The following is the canonical user-facing guide for the finance "
-                            "feature of this bot. Use it to answer the user's questions about how "
-                            "the feature works, what tags vs categories are for, how to log "
-                            "reimbursements, etc. Do not quote the markdown verbatim — paraphrase "
-                            "in plain text.\n\n"
-                            + _FINANCE_GUIDE
-                        ),
-                        "cache_control": {"type": "ephemeral"},
-                    },
                     {
                         "type": "text",
                         "text": system_text,
