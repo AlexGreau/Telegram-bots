@@ -302,9 +302,8 @@ async def assist_respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     elif item["type"] == "swim":
                         lines.append(f"🏊 *{item['distance']:,}m* on {item['date']}")
                     else:
-                        d = item["date"]
-                        display = f"{d[:2]}/{d[2:4]}/{d[4:]}"
-                        lines.append(f"🏃 *{item['distance_km']}km* in {item['time']} on {display}")
+                        distance_m = round(item["distance_km"] * 1000)
+                        lines.append(f"🏃 *{distance_m:,}m* in {item['time']} on {item['date']}")
                 preview = "About to log:\n" + "\n".join(lines)
                 keyboard = InlineKeyboardMarkup([[
                     InlineKeyboardButton("✅ Confirm", callback_data="multi_confirm"),

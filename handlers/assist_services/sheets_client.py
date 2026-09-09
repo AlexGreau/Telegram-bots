@@ -16,11 +16,24 @@ def _get_client():
     )
     return gspread.authorize(creds)
 
+def _open_worksheet(sh, title: str):
+    try:
+        return sh.worksheet(title)
+    except gspread.WorksheetNotFound:
+        wanted = title.strip().casefold()
+        for ws in sh.worksheets():
+            if ws.title.strip().casefold() == wanted:
+                return ws
+        available = ", ".join(w.title for w in sh.worksheets())
+        raise gspread.WorksheetNotFound(
+            f"no tab named '{title}' in '{sh.title}' (tabs: {available})"
+        )
+
 def _get_swim_sheet():
     gc = _get_client()
     sh = gc.open_by_key(os.getenv("GOOGLE_SHEET_ID_SWIM"))
     year = str(datetime.now().year)
-    return sh.worksheet(year)
+    return _open_worksheet(sh, year)
 
 def format_date_for_swim(iso_date: str) -> str:
     return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d/%m")
@@ -63,20 +76,21 @@ def get_swim_stats() -> dict:
 def _get_run_sheet():
     gc = _get_client()
     sh = gc.open_by_key(os.getenv("GOOGLE_SHEET_ID_RUN"))
-    return sh.worksheet("history")
+    return _open_worksheet(sh, "history")
 
 def format_date_for_run(iso_date: str) -> str:
-    return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d%m%Y")
+    return datetime.strptime(iso_date, "%Y-%m-%d").strftime("%d/%m/%Y")
 
 def log_run(date: str, distance_km: float, time: str) -> None:
     ws = _get_run_sheet()
     next_row = len(ws.col_values(1)) + 1
-    ws.update(f"A{next_row}:C{next_row}", [[date, distance_km, time]])
+    distance_m = round(distance_km * 1000)
+    ws.update(f"A{next_row}", [[date]], value_input_option="USER_ENTERED")
+    ws.update(f"B{next_row}:C{next_row}", [[distance_m, time]])
 
 def format_run_confirmation(date: str, distance_km: float, time: str) -> str:
-    display_date = f"{date[:2]}/{date[2:4]}/{date[4:]}"
     return (
-        f"✅ Logged *{distance_km}km* in *{time}* on {display_date}"
+        f"✅ Logged *{round(distance_km * 1000):,}m* in *{time}* on {date}"
     )
 
 def weeks_remaining_in_year() -> int:
@@ -94,23 +108,23 @@ def _get_finance_sheet():
 
 
 def _get_transactions_tab():
-    return _get_finance_sheet().worksheet("transactions")
+    return _open_worksheet(_get_finance_sheet(), "transactions")
 
 
 def _get_categories_tab():
-    return _get_finance_sheet().worksheet("categories")
+    return _open_worksheet(_get_finance_sheet(), "categories")
 
 
 def _get_payment_methods_tab():
-    return _get_finance_sheet().worksheet("payment_methods")
+    return _open_worksheet(_get_finance_sheet(), "payment_methods")
 
 
 def _get_tags_tab():
-    return _get_finance_sheet().worksheet("tags")
+    return _open_worksheet(_get_finance_sheet(), "tags")
 
 
 def _get_budgets_tab():
-    return _get_finance_sheet().worksheet("budgets")
+    return _open_worksheet(_get_finance_sheet(), "budgets")
 
 
 def get_categories() -> list[str]:
