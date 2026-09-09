@@ -15,6 +15,19 @@ DEPLOY_SCRIPT = os.path.join(REPO_DIR, "deploy.sh")
 
 NOTHING_TO_DO = 10
 
+BASH = "/bin/bash"
+SYSTEM_PATH = "/usr/local/bin:/usr/bin:/bin"
+
+DEPLOY_ENV = {
+    # The systemd unit narrows PATH to the venv, which hides git from deploy.sh.
+    "PATH": os.pathsep.join(p for p in (os.environ.get("PATH"), SYSTEM_PATH) if p),
+    # git must never sit waiting on a prompt it cannot receive - fail fast instead.
+    "GIT_TERMINAL_PROMPT": "0",
+    "GIT_ASKPASS": "",
+    "SSH_ASKPASS": "",
+    "GIT_SSH_COMMAND": "ssh -o BatchMode=yes -o StrictHostKeyChecking=accept-new",
+}
+
 
 async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in Config.UPDATE_ALLOWED_IDS:
@@ -26,14 +39,21 @@ async def update_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         result = await asyncio.to_thread(
             subprocess.run,
-            ["bash", DEPLOY_SCRIPT],
+            [BASH, DEPLOY_SCRIPT],
             capture_output=True,
             text=True,
             timeout=300,
             cwd=REPO_DIR,
+            stdin=subprocess.DEVNULL,
+            env={**os.environ, **DEPLOY_ENV},
         )
     except subprocess.TimeoutExpired:
         await update.message.reply_text("❌ Update timed out after 5 minutes.")
+        return
+    except Exception as exc:
+        # Never leave the user staring at "Pulling latest code..." forever.
+        logger.exception("Update crashed")
+        await update.message.reply_text(f"❌ Update crashed: {type(exc).__name__}: {exc}")
         return
 
     output = (result.stdout + result.stderr).strip() or "(no output)"
