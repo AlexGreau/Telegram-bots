@@ -8,6 +8,7 @@ shared primitives in core.py.
 import json
 import os
 from datetime import date as date_today
+from pathlib import Path
 
 from handlers.assist_services.skills.base import Skill
 from handlers.assist_services.skills.finance.core import aggregate, apply_filters, order_rows
@@ -23,6 +24,12 @@ from handlers.assist_services.sheets_client import (
 LOG_TRANSACTION = "log_transaction"
 SEARCH_TRANSACTIONS = "search_transactions"
 AGGREGATE_TRANSACTIONS = "aggregate_transactions"
+EXPLAIN_FINANCE = "explain_finance_feature"
+
+# The user-facing guide is loaded on demand (via the explain_finance_feature tool)
+# rather than prepended to every request, to keep per-message token cost down.
+# repo_root/docs/finance.md  <-  handlers/assist_services/skills/finance/tools.py
+_FINANCE_GUIDE = (Path(__file__).resolve().parents[4] / "docs" / "finance.md").read_text(encoding="utf-8")
 
 _QUERY_FILTER_PROPERTIES = {
     "query": {
@@ -259,6 +266,17 @@ FINANCE_TOOLS = [
             },
         },
     },
+    {
+        "name": EXPLAIN_FINANCE,
+        "description": (
+            "Read the finance feature guide. Call this ONLY when the user asks how the finance "
+            "feature itself works — what tags vs categories are for, how reimbursements/linking "
+            "work, what 'recurring' means, how goods tagging works, and similar meta questions. "
+            "Do NOT call it for logging a transaction or for querying the user's actual data. "
+            "Returns the guide text; paraphrase it in plain text when you answer."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -320,8 +338,9 @@ def _instructions(ctx: dict) -> str:
         "Tag aggregation fans out: a row with tags='a,b' contributes to both 'a' and 'b' totals, "
         "so the sum of tag groups may exceed the grand total. "
         "When the user asks how the finance feature works (what tags vs categories "
-        "are, how reimbursements get linked, what 'recurring' means, etc.), answer from "
-        "the finance guide provided above. Paraphrase in plain text. "
+        "are, how reimbursements get linked, what 'recurring' means, etc.), call "
+        "explain_finance_feature to read the guide, then answer in plain text. Paraphrase — "
+        "do not quote the markdown verbatim. "
     )
 
 
@@ -468,6 +487,8 @@ async def _execute(name: str, inputs: dict, context) -> tuple[str, dict | None]:
         return _build_transaction_pending(inputs, known_cats, known_pms, known_tags)
     if name in {SEARCH_TRANSACTIONS, AGGREGATE_TRANSACTIONS}:
         return _run_query(name, inputs), None
+    if name == EXPLAIN_FINANCE:
+        return _FINANCE_GUIDE, None
     return f"Unknown finance tool: {name}", None
 
 
